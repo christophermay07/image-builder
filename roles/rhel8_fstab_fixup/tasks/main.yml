@@ -1,0 +1,25 @@
+---
+# Fix RHEL 8 /etc/fstab issues caused by building on a RHEL 9 host.
+#
+# Two problems addressed:
+#   1. RHEL 9 builders force inode64 in tmpfs mount options. RHEL 8 kernels don't understand inode64, so it breaks boot.
+#   2. The RHEL 8 STIG profile copies a /proc/cmdline tmpfs mount from the builder host into /etc/fstab. That mount
+#      doesn't exist on the target system, so it breaks boot.
+#
+# Only runs for RHEL 8 images. Removing inode64 on RHEL 9+ would be incorrect (it's a valid default there).
+
+# _builder_host is inherited from rhel_image_build (set once per phantom host via round-robin; see that role).
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Fix RHEL 8 fstab (strip inode64, remove /proc/cmdline mount)
+  ansible.builtin.command:
+    cmd: >-
+      virt-edit -a {{ image_output_dir }}/{{ vm_name }}.qcow2
+      /etc/fstab -e
+      's/,inode64//; s/inode64,//; $_ = "" if m{\s/proc/cmdline\s}'
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+  when: os_major | string == "8"

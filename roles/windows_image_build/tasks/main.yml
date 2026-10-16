@@ -1,0 +1,114 @@
+---
+# Windows image build: generate Packer template, run Packer, capture AMI.
+#
+# Same delegation pattern as rhel_image_build but for Packer builds.
+# Called from build_windows.yml against phantom hosts.
+#
+# Key variables:
+#
+#   builder_group      → from group_vars/method_packer.yml
+#                        (= "packer_builders")
+#   packer_binary      → from group_vars/packer_builders.yml
+#   vm_name            → set from inventory_hostname
+#
+# Unlike RHEL, hardening and STIG scanning happen INSIDE the Packer guest via provisioner playbooks
+# (windows-harden.yml.j2 etc.), not as separate roles in the calling playbook.
+
+# Guard: same as rhel_image_build. Prevents index error if all packer builders failed to start or configure.
+- name: Verify builders are available for delegation
+  ansible.builtin.fail:
+    msg: >-
+      No healthy builders in group '{{ builder_group }}'. All
+      {{ builder_group }} instances either failed to start or failed to
+      configure. Cannot build {{ inventory_hostname }}.
+  when: groups[builder_group] | default([]) | length == 0
+
+# _builder_host: the single source of truth for which builder this phantom host delegates to.
+#
+# Set ONCE here via round-robin and inherited by every subsequent role in the play (image_release_publish,
+# artifactory_release_bundle). Those roles do NOT set _builder_host themselves; they rely on the host fact persisting
+# across include_role calls within the same play. See rhel_image_build for the full round-robin explanation.
+- name: Set builder host for delegation (round-robin, inherited by all downstream roles)
+  ansible.builtin.set_fact:
+    _builder_host: >-
+      {{ groups[builder_group][
+         ansible_play_hosts_all.index(inventory_hostname)
+         % (groups[builder_group] | length)] }}
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Create Packer directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ packer_template_dir }}"
+    - "{{ packer_log_dir }}"
+    - "{{ report_output_dir }}/{{ vm_name }}"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Template Packer configuration
+  ansible.builtin.template:
+    src: windows-ami.pkr.hcl.j2
+    dest: "{{ packer_template_dir }}/{{ vm_name }}.pkr.hcl"
+    mode: "0644"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Template Packer variables file
+  ansible.builtin.template:
+    src: windows-ami.pkrvars.hcl.j2
+    dest: "{{ packer_template_dir }}/{{ vm_name }}.pkrvars.hcl"
+    mode: "0644"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Template Packer provisioner playbooks
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ packer_template_dir }}/{{ vm_name }}-{{ item.name }}.yml"
+    mode: "0644"
+  loop:
+    - { src: windows-harden.yml.j2, name: harden }
+    - { src: windows-scan.yml.j2, name: scan }
+    - { src: windows-sysprep.yml.j2, name: sysprep }
+  delegate_to: "{{ _builder_host }}"
+
+- name: Template WinRM bootstrap user_data script
+  ansible.builtin.template:
+    src: winrm-bootstrap.ps1.j2
+    dest: "{{ packer_template_dir }}/{{ vm_name }}-userdata.ps1"
+    mode: "0644"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Initialize Packer plugins
+  ansible.builtin.command:
+    cmd: "{{ packer_binary }} init {{ packer_template_dir }}/{{ vm_name }}.pkr.hcl"
+  environment:
+    PACKER_LOG: "1"
+    PACKER_LOG_PATH: "{{ packer_log_dir }}/{{ vm_name }}-init.log"
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Run Packer build
+  ansible.builtin.command:
+    cmd: >-
+      {{ packer_binary }} build
+      -var-file={{ packer_template_dir }}/{{ vm_name }}.pkrvars.hcl
+      {{ packer_template_dir }}/{{ vm_name }}.pkr.hcl
+  register: packer_result
+  environment:
+    PACKER_LOG: "1"
+    PACKER_LOG_PATH: "{{ packer_log_dir }}/{{ vm_name }}-build.log"
+    AWS_ACCESS_KEY_ID: "{{ aws_build_access_key_id | default(omit, true) }}"
+    AWS_SECRET_ACCESS_KEY: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    AWS_SESSION_TOKEN: "{{ aws_build_session_token | default(omit, true) }}"
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+# Packer prints the AMI ID near the end of its output; grab the first ami-* match.
+- name: Extract AMI ID from Packer output
+  ansible.builtin.set_fact:
+    windows_ami_id: >-
+      {{ packer_result.stdout | regex_search('ami-[a-z0-9]+') }}

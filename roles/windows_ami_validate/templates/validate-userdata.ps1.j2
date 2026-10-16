@@ -1,0 +1,61 @@
+<powershell>
+# Post-AMI validation WinRM bootstrap.
+#
+# This script runs as EC2 userdata on a fresh instance booted from the
+# hardened AMI. It re-enables WinRM Basic auth temporarily (it was
+# disabled by the STIG sysprep provisioner per ADR-025) and sets up an
+# HTTPS listener so the validation scan can connect.
+#
+# After the scan completes, the validation instance is terminated. The
+# temporary Basic auth re-enablement never reaches production because
+# this instance is never distributed or snapshotted.
+
+# Set Administrator password for WinRM authentication.
+# The original Administrator account may have been renamed per V-254447.
+# EC2Launch v2 resets the password on first boot; we override it here.
+$admin = Get-LocalUser | Where-Object { $_.SID -like 'S-1-5-21-*-500' }
+$password = ConvertTo-SecureString '{{ packer_winrm_password }}' -AsPlainText -Force
+Set-LocalUser -InputObject $admin -Password $password
+
+# Re-enable Basic auth for validation scan connectivity.
+Set-ItemProperty `
+    -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Windows\WinRM\Service' `
+    -Name 'AllowBasic' `
+    -Value 1 `
+    -Type DWord `
+    -Force
+
+# Ensure WinRM service is running.
+Set-Service -Name WinRM -StartupType Automatic
+Start-Service WinRM
+
+# Create a self-signed certificate for HTTPS listener.
+$cert = New-SelfSignedCertificate `
+    -DnsName $env:COMPUTERNAME `
+    -CertStoreLocation Cert:\LocalMachine\My `
+    -KeyExportPolicy NonExportable `
+    -Provider 'Microsoft Software Key Storage Provider'
+
+# Remove any existing HTTPS listeners and create a new one.
+Get-ChildItem WSMan:\localhost\Listener | `
+    Where-Object { $_.Keys -contains 'Transport=HTTPS' } | `
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+
+New-Item -Path WSMan:\localhost\Listener `
+    -Transport HTTPS `
+    -Address * `
+    -CertificateThumbprint $cert.Thumbprint `
+    -Force
+
+# Disable unencrypted transport.
+Set-Item WSMan:\localhost\Service\AllowUnencrypted $false
+
+# Open firewall for WinRM HTTPS.
+New-NetFirewallRule `
+    -DisplayName 'WinRM HTTPS (Validation)' `
+    -Direction Inbound `
+    -Protocol TCP `
+    -LocalPort {{ validate_winrm_port }} `
+    -Action Allow `
+    -ErrorAction SilentlyContinue
+</powershell>

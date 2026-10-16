@@ -1,0 +1,11 @@
+---
+# Re-scan dynamic inventory so aws_ec2.yml picks up builders started by start_builders.yml.
+#
+# Only needed for CLI runs. In AAP, each job template launch refreshes inventory automatically via update_on_launch,
+# so this playbook has no corresponding job template.
+- name: Refresh dynamic inventory
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Re-scan inventory sources
+      ansible.builtin.meta: refresh_inventory

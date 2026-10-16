@@ -1,0 +1,31 @@
+---
+# Windows STIG hardening via MindPoint Group collection.
+# This role is called by the Packer Ansible provisioner during the Windows image build, runs directly on the instance.
+#
+# The tasks below are provider-agnostic (feature install, registry config) except for the final include_role, which is
+# MindPoint-specific. To swap providers, replace or modify that task. See defaults/main.yml for the full list of
+# MindPoint coupling points.
+
+- name: Install profile-specific Windows features
+  ansible.windows.win_feature:
+    name: "{{ item }}"
+    state: present
+  loop: "{{ profile_windows_extra_features }}"
+  when: profile_windows_extra_features | length > 0
+
+- name: Apply profile-specific Windows configuration
+  ansible.windows.win_regedit:
+    path: "{{ item.path }}"
+    name: "{{ item.name }}"
+    data: "{{ item.data }}"
+    type: "{{ item.type | default('string') }}"
+  loop: "{{ profile_windows_registry_entries | dict2items | default([]) }}"
+  when: profile_windows_registry_entries | length > 0
+
+## MindPoint-specific task
+# This include_role delegates all STIG remediation to MindPoint Group.
+# Rule overrides (win2022stig_rule_XXXXXX_enabled) live in defaults/main.yml or group_vars and are picked up from the
+# variable namespace automatically (no `vars:` block needed).
+- name: Apply Windows Server 2022 STIG
+  ansible.builtin.include_role:
+    name: "{{ windows_stig_role }}"

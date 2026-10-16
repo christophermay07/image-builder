@@ -1,0 +1,4 @@
+---
+# Windows Server 2025 version-specific settings
+os_version: "2025"
+source_ami: "ami-0abcdef1234567890"  # TODO: confirm source AMI ID

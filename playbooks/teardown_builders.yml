@@ -1,0 +1,75 @@
+---
+# Terminate ephemeral builder EC2 instances after the pipeline completes. Replaces stop_builders.yml in the ephemeral
+# pipeline (site_ephemeral.yml).
+#
+# Runs entirely on localhost (connection: local). No SSH; just AWS API calls to terminate the instances.
+#
+# CRITICAL DIFFERENCE FROM stop_builders.yml:
+#   stop_builders  → state: stopped  (instance persists, EBS preserved)
+#   teardown       → state: terminated (instance destroyed permanently)
+#
+# Only targets instances tagged ephemeral=true + purpose=image-builder. Static (persistent) builders are never touched
+# by this playbook, even if they're running at the same time. This means static and ephemeral builders can safely
+# coexist.
+#
+# In the AAP workflow, this MUST be wired as an always_nodes target (same as stop_builders) so instances are terminated
+# even on failure. Without this, failed pipeline runs leave orphaned instances running at full compute cost. See also:
+# safety-net sweeper (future) to catch any orphans from AAP crashes or operator cancellations.
+- name: Terminate ephemeral builder EC2 instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    # Find all ephemeral builders regardless of state; an instance that was stopped mid-run still needs to be
+    # terminated.
+    - name: Find ephemeral builder instances by tag
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters:
+          "tag:purpose": image-builder
+          "tag:ephemeral": "true"
+          instance-state-name:
+            - running
+            - stopped
+            - stopping
+      register: _ephemeral_instances
+
+    - name: Report discovered ephemeral builders
+      ansible.builtin.debug:
+        msg: >-
+          Found {{ _ephemeral_instances.instances | length }} ephemeral
+          builder instance(s) to terminate:
+          {{ _ephemeral_instances.instances
+             | map(attribute='instance_id') | list }}
+
+    - name: Terminate ephemeral builder instances
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        instance_ids: >-
+          {{ _ephemeral_instances.instances
+             | map(attribute='instance_id') | list }}
+        state: terminated
+        wait: true
+      when: _ephemeral_instances.instances | length > 0
+      register: _terminate_result
+      ignore_errors: true
+
+    - name: Warn if termination had errors
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Some ephemeral builder instances may not have
+          terminated cleanly. Check the AWS console for instances
+          tagged purpose=image-builder, ephemeral=true. Error:
+          {{ _terminate_result.msg | default('unknown') }}
+      when: _terminate_result is failed
+
+    - name: Confirm teardown result
+      ansible.builtin.debug:
+        msg: >-
+          {# Ternary: if any instances were found, report the count; otherwise say none found. #}
+          {# The ~ operator is Jinja2 string concatenation. #}
+          {{ (_ephemeral_instances.instances | length > 0) | ternary(
+            'Terminated ' ~ (_ephemeral_instances.instances | length) ~
+            ' ephemeral builder instance(s).',
+            'No ephemeral builder instances found to terminate.') }}

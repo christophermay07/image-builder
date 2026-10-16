@@ -1,0 +1,27 @@
+---
+# Windows family settings (all Windows Server versions share these)
+os_family: windows
+
+# Packer connection settings; shared across all Windows versions.
+# These exist because of the build method (Packer) but their values are
+# determined by the OS family (Windows uses WinRM, not SSH), so they live
+# here rather than in method_packer.yml. See README "Where Do Variables Go?"
+packer_instance_type: "m5.xlarge"
+packer_communicator: "winrm"
+packer_winrm_username: "Administrator"
+
+# Windows STIG settings; shared across all Windows versions.
+# Used by windows_compliance_scan (pre-seal), windows_ami_validate (post-seal),
+# windows_hardening, and image_release_publish.
+
+# PowerSTIG module version installed in the guest for compliance auditing.
+powerstig_version: "4.30.0"
+
+# STIG checklist ID passed to PowerSTIG. Must match the Windows Server version;
+# update when adding new version groups (e.g. "WindowsServer-2025-MS").
+powerstig_stig_id: "WindowsServer-2022-MS"
+
+# Ansible Lockdown STIG role for remediation. Installed as a standalone
+# role from GitHub (see requirements.yml). Also read by
+# image_release_publish templates via | default('N/A').
+windows_stig_role: "win2022stig"

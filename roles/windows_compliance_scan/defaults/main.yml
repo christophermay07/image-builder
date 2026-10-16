@@ -1,0 +1,25 @@
+---
+# windows_compliance_scan role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+#
+# This role runs inside the Packer guest (not on the builder host).
+
+## Cross-role, Windows targets (defined in group_vars/windows_targets.yml)
+# Also used by windows_ami_validate and windows_hardening.
+
+# PowerSTIG module version to install for compliance auditing.
+powerstig_version: "4.30.0"
+
+# STIG checklist ID used by PowerSTIG.
+powerstig_stig_id: "WindowsServer-2022-MS"
+
+## Role-only (not in group_vars)
+# Guest-internal paths and minor toggles; not operator-facing.
+
+# Output directory on the Windows guest for scan results. Path inside the VM, not the builder host.
+compliance_output_dir: 'C:\compliance-results'
+
+# Toggle HTML summary report generation. Fine as a default; override via extra-vars if needed.
+compliance_generate_html: true

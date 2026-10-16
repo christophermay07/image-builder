@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: "the client"
+  license: ""
+  role_name: windows_ami_validate
+  description: >-
+    Boot a fresh instance from a Windows AMI and run a post-AMI
+    PowerSTIG compliance scan to validate the shipped artifact.
+  min_ansible_version: "2.16"
+dependencies: []

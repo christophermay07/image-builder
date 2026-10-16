@@ -1,0 +1,88 @@
+---
+# Windows image build pipeline.
+#
+# Targets phantom hosts in "method_packer" (targets.yml dimension 4). Same pattern as build_rhel.yml but for Windows:
+#   OS family (windows_targets)   → base ISO, WinRM config
+#   OS version (windows_2022/...) → version string
+#   Profile (profile_base/...)    → extra features
+#   Method (method_packer)        → builder_group = "packer_builders"
+#
+# Phantom hosts are NOT real machines and will never be reachable via SSH; gather_facts is disabled because there's
+# nothing to gather. Ansible resolves the host only so it can merge the right group_vars. The windows_image_build role
+# round-robins across available builders in the packer_builders group (see that role for details). So even though
+# "hosts: method_packer" looks like we're targeting machines, no SSH connection is made to any phantom host.
+#
+# serial is set to the number of available packer_builders, matching the pattern in build_rhel.yml. Even though Packer
+# builds are more independent than osbuild composes (each launches its own temporary EC2 guest), running too many Packer
+# processes on the same builder simultaneously can exhaust CPU/memory on the orchestrator. This keeps at most one build
+# per builder at a time. With ephemeral 1:1 builders this evaluates to serial: 1 and is effectively a no-op.
+#
+# Unlike RHEL, STIG hardening and compliance scanning run INSIDE the Packer guest via provisioner playbooks (templated
+# by windows_image_build), not as playbook-level roles here.
+#
+# Use --limit to scope which Windows variants are built:
+#   --limit windows_targets          # all Windows (3 builds)
+#   --limit windows-2022-base        # exactly one build
+#   --limit 'windows_targets:&profile_base'  # Windows x base only
+#
+# Failure handling: same block/rescue pattern as build_rhel.yml. In AAP, this job also uses always_nodes to reach
+# Distribute, so a failure here won't kill the RHEL branch.
+- name: Build Windows images
+  hosts: method_packer
+  gather_facts: false
+  serial: "{{ groups['packer_builders'] | default([1]) | length }}"
+  tasks:
+    - name: Build, validate, and publish Windows image
+      block:
+        - name: Build Windows image with Packer
+          ansible.builtin.include_role:
+            name: windows_image_build
+          tags: [build, windows, packer]
+
+        - name: Validate AMI with post-AMI compliance scan
+          ansible.builtin.include_role:
+            name: windows_ami_validate
+          tags: [validate, windows, compliance]
+
+        - name: Publish release artifacts
+          ansible.builtin.include_role:
+            name: image_release_publish
+          tags: [export, windows, artifactory]
+
+        - name: Create Artifactory release bundle
+          ansible.builtin.include_role:
+            name: artifactory_release_bundle
+          tags: [release-bundle, windows, artifactory]
+
+      rescue:
+        # Same pattern as build_rhel.yml (accumulate failures on localhost since phantom hosts have no real storage)
+        - name: Record build failure
+          ansible.builtin.set_fact:
+            _build_failed: true
+            _build_error: "{{ ansible_failed_result | default(ansible_failed_task) | default('unknown error') }}"
+          delegate_facts: false
+          delegate_to: localhost
+
+        - name: Append to failure list
+          ansible.builtin.set_fact:
+            # Read the accumulated list from localhost (may not exist yet), append this failure, and
+            # write it back. delegate_to + delegate_facts stores it on localhost for the reporting play.
+            build_failures: >-
+              {{ (hostvars['localhost']['build_failures'] | default([])) +
+                 [{'target': inventory_hostname, 'error': _build_error}] }}
+          delegate_facts: true
+          delegate_to: localhost
+
+# Second play: runs on localhost to report failures collected above.
+- name: Report Windows build failures
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Report failed Windows builds
+      ansible.builtin.fail:
+        msg: |-
+          {{ build_failures | length }} Windows image build(s) failed:
+          {% for f in build_failures %}
+          - {{ f.target }}: {{ f.error }}
+          {% endfor %}
+      when: (build_failures | default([])) | length > 0

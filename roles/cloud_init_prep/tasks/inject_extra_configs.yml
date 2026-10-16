@@ -1,0 +1,35 @@
+---
+# Inject additional cloud-init config files into the built image.
+# Uses guestmount to write files without booting the image.
+# Only runs when cloud_init_extra_configs is defined and non-empty.
+
+- name: Create mount point for cloud-init injection
+  ansible.builtin.file:
+    path: "{{ cloud_init_mount_point }}"
+    state: directory
+    mode: "0755"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Mount image for cloud-init injection
+  ansible.builtin.command:
+    cmd: >-
+      guestmount -a {{ image_output_dir }}/{{ vm_name }}.qcow2
+      -i {{ cloud_init_mount_point }}
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Write extra cloud-init config files
+  ansible.builtin.copy:
+    content: "{{ item.content }}"
+    dest: "{{ cloud_init_mount_point }}/etc/cloud/cloud.cfg.d/{{ item.filename }}"
+    mode: "0644"
+  loop: "{{ cloud_init_extra_configs }}"
+  loop_control:
+    label: "{{ item.filename }}"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Unmount image after cloud-init injection
+  ansible.builtin.command:
+    cmd: guestunmount {{ cloud_init_mount_point }}
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"

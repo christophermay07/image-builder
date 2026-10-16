@@ -1,0 +1,49 @@
+---
+# Check the FIPS policy flag on the post-AMI validation instance.
+# Writes a JSON file for the release bundle recording whether
+# FIPSAlgorithmPolicy\Enabled is set to 1.
+#
+# What this checks: the registry flag that tells CNG to run its FIPS
+# self-tests at boot and reject non-approved algorithm requests. On a
+# booted instance, Enabled=1 means the self-tests ran at startup.
+#
+# What this does NOT check: it does not independently verify that a
+# CMVP-validated module is loaded or performing cryptographic operations.
+# The flag is the CMVP-documented procedure for entering FIPS mode
+# (see bcryptprimitives.dll Security Policy, CMVP cert #5410), but
+# this check only confirms the flag is set.
+#
+# Who sets it: the Ansible Lockdown STIG role (win2022stig) is
+# expected to set this key as part of the DISA STIG baseline. This
+# pipeline does not set the key independently. If the STIG role's
+# coverage changes, this check will catch the regression.
+#
+# Rendered from verify-fips.yml.j2 by windows_ami_validate role.
+- name: Verify FIPS mode on validation instance
+  hosts: all
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Check FIPS registry and write verification output
+      ansible.windows.win_shell: |
+        $regPath = 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\FIPSAlgorithmPolicy'
+        $val = (Get-ItemProperty -Path $regPath -Name Enabled -ErrorAction Stop).Enabled
+        $result = @{
+            fips_enabled  = ($val -eq 1)
+            registry_path = $regPath
+            value_name    = 'Enabled'
+            raw_value     = $val
+            hostname      = $env:COMPUTERNAME
+            timestamp     = (Get-Date -Format o)
+        }
+        $json = $result | ConvertTo-Json -Depth 2
+        $outputDir = '{{ validate_compliance_output_dir }}'
+        if (-not (Test-Path $outputDir)) {
+            New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+        }
+        $json | Set-Content "$outputDir\fips-verify.json" -Encoding utf8
+        Write-Output $json
+        if ($val -ne 1) {
+            Write-Error "FIPS mode is NOT enabled (Enabled=$val)"
+            exit 1
+        }

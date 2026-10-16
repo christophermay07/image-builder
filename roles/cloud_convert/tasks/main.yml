@@ -1,0 +1,23 @@
+---
+# Convert qcow2 to cloud-native image formats.
+# Loops over cloud_targets; each target gets format conversion + upload.
+# Internet is available on first boot, so cloud-init installs vendor agents.
+# This is purely a format conversion step.
+
+# _builder_host is inherited from rhel_image_build (set once per phantom host via round-robin; see that role).
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Convert for AWS (qcow2 -> AMI)
+  ansible.builtin.include_tasks: convert_aws.yml
+  when: "'aws' in cloud_targets"
+
+- name: Convert for Azure (qcow2 -> VHD)
+  ansible.builtin.include_tasks: convert_azure.yml
+  when: "'azure' in cloud_targets"
+
+- name: Convert for GCP (qcow2 -> raw -> tar.gz)
+  ansible.builtin.include_tasks: convert_gcp.yml
+  when: "'gcp' in cloud_targets"

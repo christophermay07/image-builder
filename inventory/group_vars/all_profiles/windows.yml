@@ -1,0 +1,25 @@
+---
+# Windows profile defaults inherited by every profile.
+# See README.md in this directory for composition rules and YAML syntax notes.
+
+_base_windows_extra_features: []
+#   - NET-Framework-45-Core
+#   - NET-Framework-45-ASPNET
+_profile_specific_windows_extra_features: []
+profile_windows_extra_features: "{{ _base_windows_extra_features + _profile_specific_windows_extra_features }}"
+
+_base_windows_post_tasks: []
+#   - include_tasks: common_windows_customizations.yml
+_profile_specific_windows_post_tasks: []
+profile_windows_post_tasks: "{{ _base_windows_post_tasks + _profile_specific_windows_post_tasks }}"
+
+_base_windows_registry_entries: {}
+#   # Each key is passed through dict2items and applied via win_regedit.
+#   # Required fields: path, name, data. Optional: type (default: string).
+#   poc_memory_management:
+#     path: HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management
+#     name: LargeSystemCache
+#     data: 1
+#     type: dword
+_profile_specific_windows_registry_entries: {}
+profile_windows_registry_entries: "{{ _base_windows_registry_entries | combine(_profile_specific_windows_registry_entries) }}"

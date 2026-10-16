@@ -1,0 +1,43 @@
+---
+# Convert qcow2 to GCP image format (raw -> tar.gz named disk.raw).
+- name: Convert qcow2 to raw format
+  ansible.builtin.command:
+    cmd: >-
+      qemu-img convert -f qcow2 -O raw
+      {{ image_output_dir }}/{{ vm_name }}.qcow2
+      {{ image_output_dir }}/{{ vm_name }}.raw
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Rename to disk.raw (GCP convention)
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ image_output_dir }}/{{ vm_name }}.raw
+      {{ image_output_dir }}/disk.raw
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+# Linter is trying to force use of unarchive module, which is not what we need here.
+- name: Create tar.gz archive for GCP
+  ansible.builtin.command: # noqa: command-instead-of-module
+    cmd: >-
+      tar -czf {{ image_output_dir }}/{{ vm_name }}-gcp.tar.gz
+      -C {{ image_output_dir }} disk.raw
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Clean up raw file
+  ansible.builtin.file:
+    path: "{{ image_output_dir }}/disk.raw"
+    state: absent
+  delegate_to: "{{ _builder_host }}"
+
+# TODO: Upload tar.gz to GCS and create compute image
+# Requires GCP credentials and google.cloud collection.
+- name: Upload to GCP (placeholder)
+  ansible.builtin.debug:
+    msg: >-
+      TODO: Upload {{ image_output_dir }}/{{ vm_name }}-gcp.tar.gz to GCS
+      and run gcloud compute images create. Requires GCP credentials and
+      google.cloud collection.
+  delegate_to: "{{ _builder_host }}"

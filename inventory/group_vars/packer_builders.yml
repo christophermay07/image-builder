@@ -1,0 +1,38 @@
+---
+# Variables for the "packer_builders" group (Windows/Packer builder EC2 instances).
+#
+# This group is populated at runtime by aws_ec2.yml from instances tagged builder_type=packer. These are the machines
+# where Packer runs to build Windows AMIs.
+#
+# Separate from osbuild_builders so that Packer tooling is only installed where needed. The builder_configure role
+# conditionally includes install_packer.yml only for hosts in this group (when: "'packer_builders' in group_names").
+#
+# The build roles pick a host from this group via round-robin modulo indexing on builder_group (derived from
+# build_method in all.yml).
+builder_type: packer
+
+# Packer version installed on builder hosts by builder_configure.
+packer_version: "1.16.1"
+packer_download_url: "https://releases.hashicorp.com/packer/{{ packer_version }}/packer_{{ packer_version }}_linux_amd64.zip"
+
+builder_packages:
+  - unzip
+
+validation_packages: []
+
+# Python packages needed on the builder host for Packer's Ansible
+# provisioner. Packer runs ansible-playbook directly on the builder
+# (not inside the EE), so these must be installed in the builder's
+# own Python environment. pywinrm is the critical one: Packer's
+# Ansible provisioner connects to the Windows guest over WinRM.
+builder_pip_packages:
+  - pywinrm>=0.5.0
+
+# Collections needed on the builder host for Packer's Ansible
+# provisioner playbooks (harden, scan, sysprep). These run on the
+# builder via ansible-playbook, not inside the EE.
+builder_collections:
+  - name: ansible.windows
+    version: ">=3.7.0"
+  - name: community.windows
+    version: ">=3.3.0"

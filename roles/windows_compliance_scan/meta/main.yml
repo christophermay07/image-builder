@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: "the client"
+  license: ""
+  role_name: windows_compliance_scan
+  description: "Pre-seal PowerSTIG compliance scan inside the Packer guest"
+  min_ansible_version: "2.16"
+dependencies: []

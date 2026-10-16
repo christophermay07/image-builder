@@ -1,0 +1,3 @@
+---
+# RHEL 8.10 version-specific settings
+os_version: "8.10"

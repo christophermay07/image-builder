@@ -1,0 +1,101 @@
+---
+# RHEL Image Builder: render blueprint, push to composer, compose, download.
+#
+# Called from build_rhel.yml against phantom hosts. Each phantom host (e.g. "rhel-9.4-base") carries variables from its
+# four inventory groups; this role doesn't need to know which OS version or profile it is; it just uses the composed
+# variables. Key variables used here:
+#
+#   builder_group      → derived in group_vars/all.yml as "{{ build_method }}_builders"
+#   blueprint_template → from group_vars/rhel*_targets.yml (OS family dimension)
+#   vm_name            → set from inventory_hostname (the phantom host name, e.g. "rhel-9.4-base")
+#
+# All tasks delegate to _builder_host, which is a real EC2 instance from the osbuild_builders group (discovered by
+# aws_ec2.yml).
+
+# Guard: if start_builders or configure_builders failed for all instances of this builder type, the group will be empty
+# and the round-robin indexing would throw an error. This gives a clear message instead.
+- name: Verify builders are available for delegation
+  ansible.builtin.fail:
+    msg: >-
+      No healthy builders in group '{{ builder_group }}'. All {{ builder_group }} instances
+      either failed to start or failed to configure. Cannot build {{ inventory_hostname }}.
+  when: groups[builder_group] | default([]) | length == 0
+
+# _builder_host: the single source of truth for which builder this phantom host delegates to.
+#
+# Set ONCE here via round-robin and inherited by every subsequent role in the play (rhel8_fstab_fixup, rhel_hardening,
+# cloud_init_prep, image_export, cloud_convert). Those roles do NOT set _builder_host themselves; they rely on the host
+# fact persisting across include_role calls within the same play. This guarantees that the builder which composed the
+# qcow2 is the same one that hardens, scans, exports, and converts it -- no cross-builder filesystem mismatches.
+#
+# Round-robin logic: each phantom host's position in the play's host list (ansible_play_hosts_all) is divided modulo
+# the number of builders, spreading work evenly. With a single builder this is a no-op (N % 1 == 0). With 3 builders
+# and 9 targets, targets 0/3/6 go to builder 0, targets 1/4/7 to builder 1, etc.
+#
+# To actually run builds in parallel, also increase serial in build_rhel.yml to match the number of builders.
+- name: Set builder host for delegation (round-robin, inherited by all downstream roles)
+  ansible.builtin.set_fact:
+    _builder_host: >-
+      {{ groups[builder_group][
+         ansible_play_hosts_all.index(inventory_hostname)
+         % (groups[builder_group] | length)] }}
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Template blueprint
+  ansible.builtin.template:
+    src: "{{ blueprint_template }}"
+    dest: "{{ blueprint_dir }}/{{ vm_name }}.toml"
+    mode: "0644"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Push blueprint to osbuild-composer
+  ansible.builtin.command:
+    cmd: composer-cli blueprints push {{ blueprint_dir }}/{{ vm_name }}.toml
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Delete any previous compose for this blueprint
+  ansible.builtin.include_tasks: cleanup_old_composes.yml
+
+- name: Start compose
+  ansible.builtin.command:
+    cmd: composer-cli compose start {{ vm_name }} {{ compose_output_type }}
+  register: compose_start
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+# Extract the first UUID from composer-cli's stdout (e.g. "Compose abcd1234-... added to the queue").
+- name: Extract compose UUID
+  ansible.builtin.set_fact:
+    compose_uuid: "{{ compose_start.stdout | regex_search('[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}') }}"
+
+- name: Fail if compose UUID not found
+  ansible.builtin.fail:
+    msg: "Could not extract compose UUID from: {{ compose_start.stdout }}"
+  when: compose_uuid is not defined or compose_uuid | length == 0
+
+- name: Wait for compose to finish
+  ansible.builtin.include_tasks: wait_for_compose.yml
+
+- name: Download compose image
+  ansible.builtin.command:
+    cmd: composer-cli compose image {{ compose_uuid }}
+  args:
+    chdir: "{{ image_output_dir }}"
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+# command used here because shell functionality is not needed, and there is no native rename module
+- name: Rename compose output to standard name
+  ansible.builtin.command: >-
+    mv {{ image_output_dir }}/{{ compose_uuid }}-disk.qcow2
+    {{ image_output_dir }}/{{ vm_name }}.qcow2
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Record compose UUID for downstream roles
+  ansible.builtin.set_fact:
+    build_compose_uuid: "{{ compose_uuid }}"

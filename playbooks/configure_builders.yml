@@ -1,0 +1,91 @@
+---
+# Ensure builder hosts have the required tooling installed. Runs after start_builders.yml, before the build playbooks.
+#
+# This is the only playbook that directly targets builder EC2 instances in its play header ("hosts: builders").
+# The build playbooks (build_rhel.yml, build_windows.yml) also SSH into builders, but they do so indirectly via
+# delegate_to: "{{ _builder_host }}" from phantom hosts. Here, "builders" is the parent group containing both
+# osbuild_builders and packer_builders (see targets.yml). These are real EC2 instances discovered by aws_ec2.yml,
+# NOT phantom hosts. gather_facts is true here because we need OS info from the real machines.
+#
+# The builder_configure role installs different packages depending on which child group the host is in:
+#   osbuild_builders → osbuild-composer, composer-cli, openscap
+#   packer_builders → Packer
+# See roles/builder_configure/tasks/main.yml for the conditional logic.
+#
+# Resilience: individual builder failures are caught by block/rescue. A failed builder is recorded and excluded; the
+# pipeline continues as long as at least one builder per type configures successfully. If ALL builders fail, this play
+# fails and the workflow stops.
+- name: Configure builder hosts
+  hosts: builders
+  gather_facts: true
+  tasks:
+    - name: Configure builder host
+      block:
+        - name: Apply builder_configure role
+          ansible.builtin.include_role:
+            name: builder_configure
+
+      rescue:
+        # Note on delegate_to / delegate_facts in the two set_fact tasks below:
+        #
+        # All Ansible facts live in-memory on the controller in the hostvars dict; no SSH is involved.
+        # "Storing a fact on builder-1" just means writing to hostvars['builder-1'][...] in controller memory,
+        # even if that builder is completely unreachable.
+        #
+        #   delegate_facts: false  → fact is keyed under the current inventory host (the builder)
+        #   delegate_facts: true   → fact is keyed under the delegate target (localhost)
+        #
+        # Step 1 uses delegate_facts: false so each builder gets its own _configure_error without clobbering
+        # other builders' errors. Step 2 uses delegate_facts: true so the shared failed_builders list
+        # accumulates on localhost where the reporting play can read it.
+        - name: Record configuration failure
+          ansible.builtin.set_fact:
+            _configure_error: >-
+              {{ ansible_failed_result | default(ansible_failed_task)
+                 | default('unknown error') }}
+          # false → stores _configure_error under this builder's hostvars, keeping it per-host so concurrent
+          # builder failures don't overwrite each other.
+          delegate_facts: false
+          delegate_to: localhost
+
+        - name: Append to failed builders list
+          ansible.builtin.set_fact:
+            failed_builders: >-
+              {{ (hostvars['localhost']['failed_builders'] | default([]))
+                 + [{'host': inventory_hostname, 'error': _configure_error}] }}
+          # true → stores failed_builders under hostvars['localhost'] so it acts as a shared accumulator.
+          # The reporting play (hosts: localhost) can then read it directly as its own fact.
+          delegate_facts: true
+          delegate_to: localhost
+
+        - name: Warn about failed builder
+          ansible.builtin.debug:
+            msg: >-
+              WARNING: Builder {{ inventory_hostname }} failed to configure
+              and will be excluded from builds: {{ _configure_error }}
+
+# Second play: runs on localhost to report/fail based on accumulated results from above. Same pattern as build_rhel.yml
+# / build_windows.yml.
+- name: Report builder configuration results
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Warn about failed builders
+      ansible.builtin.debug:
+        msg: |-
+          {{ (failed_builders | default([])) | length }} builder(s) failed to configure:
+          {% for f in (failed_builders | default([])) %}
+          - {{ f.host }}: {{ f.error }}
+          {% endfor %}
+      when: (failed_builders | default([])) | length > 0
+
+    - name: Fail if no builders configured successfully
+      ansible.builtin.fail:
+        msg: >-
+          All builders failed to configure. Cannot proceed with builds.
+          Failed: {{ failed_builders | map(attribute='host') | list }}
+      # Fail only when every single builder failed (failure count >= group size) AND the group was
+      # non-empty. The second condition prevents a false positive when no builders were in inventory.
+      when: >-
+        (failed_builders | default([]) | length) >= (groups['builders'] | default([]) | length)
+        and (groups['builders'] | default([]) | length) > 0

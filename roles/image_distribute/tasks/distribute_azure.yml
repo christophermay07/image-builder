@@ -1,0 +1,10 @@
+---
+# Azure distribution: publish to Azure Compute Gallery and share across subscriptions.
+# Requires azure.azcollection modules and Azure Service Principal credentials.
+
+- name: Distribute to Azure (placeholder)
+  ansible.builtin.debug:
+    msg: >-
+      TODO: Publish {{ vm_name }} to Azure Compute Gallery
+      and share across target subscriptions.
+      Requires: azure.azcollection collection, Azure Service Principal in Vault.

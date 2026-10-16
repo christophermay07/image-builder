@@ -1,0 +1,55 @@
+---
+# windows_image_build role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Role-only (not in group_vars)
+# Derived paths and secret mapping; not operator-facing.
+
+# Derived from builder_work_dir (which IS in all.yml). Role-internal path convention.
+packer_log_dir: "{{ builder_work_dir }}/logs"
+
+# Mapping of the injected secret. The real credential (winrm_admin_password) is injected by AAP/vault at runtime.
+packer_winrm_password: "{{ winrm_admin_password }}"
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared settings used by multiple roles.
+
+builder_work_dir: /var/lib/image-builder
+aws_region: us-east-1
+
+## AWS credentials (build function)
+# Packer picks these up via environment variables. Uses the build-scoped credential variables from
+# group_vars/all.yml. To split from distribute/cleanup, override the aws_build_* vars.
+aws_build_access_key_id: ""
+aws_build_secret_access_key: ""
+aws_build_session_token: ""
+
+## Cross-role, packer method (defined in group_vars/method_packer.yml)
+# Used by this role and builder_configure.
+
+packer_binary: /usr/local/bin/packer
+
+## Role-specific, packer method (defined in group_vars/method_packer.yml)
+# Packer template directory; only used by this role.
+
+packer_template_dir: "{{ builder_work_dir }}/packer"
+
+## Role-specific, Windows targets (defined in group_vars/windows_targets.yml)
+# Instance sizing and WinRM settings; only used by this role.
+
+packer_instance_type: "m5.xlarge"
+packer_winrm_username: "Administrator"
+
+## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
+# These *must* be provided by the inventory (or set by earlier roles).
+# The role fails with an UndefinedError if they are missing.
+#
+# winrm_admin_password   - injected via extra-vars or vault
+# source_ami            - per-OS-version, cross-role    (windows_*.yml)        e.g. "ami-0123456789abcdef0"
+# os_family             - per-OS-family, cross-role     (windows_targets.yml)  e.g. "windows"
+# os_version            - per-OS-version, cross-role    (windows_*.yml)        e.g. "2022"
+# profile               - per-profile, cross-role       (profile_*.yml)        e.g. "base"
+# builder_group         - cross-role, derived           (all.yml)              e.g. "builders"
+# report_output_dir     - cross-role                    (all.yml)              e.g. "/var/lib/image-builder/reports"

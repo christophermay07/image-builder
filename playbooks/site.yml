@@ -1,0 +1,48 @@
+---
+# Full image build pipeline orchestrator (CLI usage).
+#
+# Runs the complete pipeline sequentially:
+#   start builders -> configure -> build RHEL -> build Windows
+#   -> distribute -> stop builders
+#
+# In AAP, this sequence is a Workflow Template instead (see
+# aap-config/inventory/group_vars/all/workflow_templates.yml),
+# where RHEL and Windows build in parallel and stop_builders is
+# wired as an always-node so builders stop even on failure.
+#
+# Use --limit to scope which targets are built:
+#   ansible-playbook playbooks/site.yml                       # everything
+#   ansible-playbook playbooks/site.yml --limit rhel9_targets # RHEL 9 only
+#   ansible-playbook playbooks/site.yml --limit profile_base  # base profiles only
+# --limit only affects phantom hosts (the build targets). Builder
+# lifecycle (start/stop) and configuration always run for all builders.
+# See individual playbooks for additional examples.
+
+# Where each step actually runs:
+#   start_builders     → localhost  (AWS API calls, no SSH)
+#   configure_builders → builders   (SSH to real EC2 instances)
+#   build_rhel         → phantom hosts  (delegate_to real builders)
+#   build_windows      → phantom hosts  (delegate_to real builders)
+#   distribute_images  → localhost  (AWS/Artifactory API calls)
+#   stop_builders      → localhost  (AWS API calls, no SSH)
+
+- name: Start builder EC2 instances
+  ansible.builtin.import_playbook: start_builders.yml
+
+- name: Refresh inventory to discover running builders (CLI only; AAP uses update_on_launch)
+  ansible.builtin.import_playbook: refresh_inventory.yml
+
+- name: Configure builder hosts
+  ansible.builtin.import_playbook: configure_builders.yml
+
+- name: Build RHEL images with Image Builder
+  ansible.builtin.import_playbook: build_rhel.yml
+
+- name: Build Windows images
+  ansible.builtin.import_playbook: build_windows.yml
+
+- name: Distribute finished images
+  ansible.builtin.import_playbook: distribute_images.yml
+
+- name: Stop builder EC2 instances
+  ansible.builtin.import_playbook: stop_builders.yml

@@ -1,0 +1,38 @@
+---
+# artifactory_release_bundle role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared Artifactory settings; also used by image_export and image_release_publish.
+
+artifactory_base_url: "https://artifactory.internal"
+artifactory_image_repo: "libs-release-local/images"
+
+## Role-specific, all hosts (defined in group_vars/all.yml)
+# GPG signing key alias registered in Artifactory. Leave empty to skip signing (the bundle is still created but
+# remains unsigned). Guarded with `| default(omit, true)` in the task so an empty string omits the header entirely.
+
+release_bundle_signing_key: ""
+
+## Role-only (computed at runtime)
+# Duplicated across image_export, image_release_publish, cloud_convert, and this role.
+
+build_timestamp: "{{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}"
+
+## Upstream facts (set by earlier plays or roles)
+# Registered or set_fact variables from earlier stages.
+#
+# vm_name        - set by build roles (rhel_image_build / windows_image_build). This role sets it from
+#                  inventory_hostname when not already defined (`when: vm_name is not defined`).
+# _builder_host  - set by rhel_image_build or windows_image_build (round-robin delegation target). Used in
+#                  delegate_to for Artifactory API calls. No guard; the role fails if the build role did not run.
+
+## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
+# These *must* be provided by the inventory (or set by earlier roles).
+# The role fails with an UndefinedError if they are missing.
+#
+# artifactory_token_release_bundle  - AAP/vault-injected API token for release bundles to Artifactory.
+#   NOTE: Unlike image_export and image_release_publish, this role does NOT guard the token with `| default(omit)`; a
+#         missing token causes a hard failure.

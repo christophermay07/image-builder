@@ -1,0 +1,65 @@
+---
+# Convert qcow2 to AMI via S3 import.
+# Uses aws_build_* credentials (build function). Override to split from distribute/cleanup.
+- name: Upload qcow2 to S3 for AMI import
+  amazon.aws.s3_object:
+    bucket: "{{ ami_import_bucket }}"
+    object: "{{ vm_name }}/{{ vm_name }}.qcow2"
+    src: "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+    mode: put
+    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_build_session_token | default(omit, true) }}"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Import qcow2 as AMI snapshot
+  amazon.aws.ec2_import_image:
+    description: "{{ vm_name }} - {{ profile }} - {{ os_version }}"
+    disk_containers:
+      - description: "{{ vm_name }}"
+        format: qcow2
+        user_bucket:
+          s3_bucket: "{{ ami_import_bucket }}"
+          s3_key: "{{ vm_name }}/{{ vm_name }}.qcow2"
+    region: "{{ aws_region }}"
+    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_build_session_token | default(omit, true) }}"
+  register: ami_import
+  delegate_to: "{{ _builder_host }}"
+
+- name: Wait for AMI import to complete
+  amazon.aws.ec2_import_image_info:
+    import_task_ids:
+      - "{{ ami_import.import_task_id }}"
+    region: "{{ aws_region }}"
+    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_build_session_token | default(omit, true) }}"
+  register: import_status
+  until: import_status.import_image[0].status == 'completed'
+  retries: 120
+  delay: 30
+  delegate_to: "{{ _builder_host }}"
+
+- name: Record imported AMI ID
+  ansible.builtin.set_fact:
+    aws_ami_id: "{{ import_status.import_image[0].image_id }}"
+
+- name: Tag AMI
+  amazon.aws.ec2_ami:
+    image_id: "{{ aws_ami_id }}"
+    region: "{{ aws_region }}"
+    tags:
+      Name: "{{ vm_name }}"
+      os_family: "{{ os_family }}"
+      os_version: "{{ os_version }}"
+      profile: "{{ profile }}"
+      stig_applied: "true"
+      fips_enabled: "true"
+      build_timestamp: "{{ build_timestamp | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}"
+    state: present
+    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_build_session_token | default(omit, true) }}"
+  delegate_to: "{{ _builder_host }}"

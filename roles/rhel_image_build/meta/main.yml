@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: "the client"
+  license: ""
+  role_name: rhel_image_build
+  description: "Build RHEL images using osbuild-composer with FIPS and STIG blueprints"
+  min_ansible_version: "2.16"
+dependencies: []

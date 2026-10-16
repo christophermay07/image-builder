@@ -1,0 +1,20 @@
+---
+# Poll compose status until FINISHED or FAILED.
+- name: Wait for compose to complete
+  ansible.builtin.command:
+    cmd: composer-cli compose info {{ compose_uuid }}
+  register: compose_info
+  until: >-
+    'FINISHED' in compose_info.stdout or
+    'FAILED' in compose_info.stdout
+  retries: "{{ compose_timeout_retries }}"
+  delay: "{{ compose_poll_interval }}"
+  changed_when: false
+  delegate_to: "{{ _builder_host }}"
+
+- name: Fail if compose did not succeed
+  ansible.builtin.fail:
+    msg: >-
+      Compose {{ compose_uuid }} failed.
+      Output: {{ compose_info.stdout }}
+  when: "'FINISHED' not in compose_info.stdout"

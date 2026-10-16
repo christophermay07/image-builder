@@ -1,0 +1,23 @@
+---
+collections:
+  - name: amazon.aws
+    version: ">=11.0.0"
+  - name: ansible.windows
+    version: ">=3.7.0"
+  - name: community.general
+    version: ">=13.0.0"
+  # community.windows is required by the Windows-2022-STIG role
+  # (see its collections/requirements.yml).
+  - name: community.windows
+    version: ">=3.3.0"
+
+roles:
+  # Ansible Lockdown STIG role for Windows Server 2022.
+  # AAP installs this at project sync time (not baked into the EE).
+  #
+  # Disconnected / air-gapped environments: clone the upstream repo
+  # into an internal GitLab mirror and replace the src URL below
+  # with the mirror's git URL. The pinned tag stays the same.
+  - src: https://github.com/ansible-lockdown/Windows-2022-STIG.git
+    version: "2.9.0"
+    name: win2022stig

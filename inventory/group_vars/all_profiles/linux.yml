@@ -1,0 +1,28 @@
+---
+# Linux profile defaults inherited by every profile.
+# See README.md in this directory for composition rules and YAML syntax notes.
+
+_base_linux_packages: []
+#   - tuned-profiles-poc
+#   - compat-poc-c++-12
+_profile_specific_linux_packages: []
+profile_linux_packages: "{{ _base_linux_packages + _profile_specific_linux_packages }}"
+
+_base_linux_post_tasks: []
+#   - include_tasks: common_linux_customizations.yml
+_profile_specific_linux_post_tasks: []
+profile_linux_post_tasks: "{{ _base_linux_post_tasks + _profile_specific_linux_post_tasks }}"
+
+# STIG-compliant partition layout for osbuild blueprints. Values are osbuild "minsize" strings; cloud-init growpart
+# expands the root volume at deploy time. Profiles override or extend via _profile_specific_filesystem_layout (merged
+# with combine(), so a profile can change sizes for existing mounts or add new ones without repeating the full base).
+_base_filesystem_layout:
+  "/": "10 GiB"
+  "/boot": "1 GiB"
+  "/home": "1 GiB"
+  "/tmp": "2 GiB"
+  "/var": "5 GiB"
+  "/var/log": "2 GiB"
+  "/var/log/audit": "1 GiB"
+_profile_specific_filesystem_layout: {}
+blueprint_filesystem_layout: "{{ _base_filesystem_layout | combine(_profile_specific_filesystem_layout) }}"

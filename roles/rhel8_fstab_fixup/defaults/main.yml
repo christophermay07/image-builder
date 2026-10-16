@@ -1,0 +1,20 @@
+---
+# rhel8_fstab_fixup role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+#
+# This role's variables are all provided by group_vars or upstream facts, so this file is primarily documentary.
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared paths used by multiple build and export roles.
+
+builder_work_dir: /var/lib/image-builder
+image_output_dir: "{{ builder_work_dir }}/output"
+
+## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
+# These *must* be provided by the inventory (or set by earlier roles).
+# The role fails with an UndefinedError if they are missing.
+#
+# os_major         - per-OS-family, role-only                       (rhel*_targets.yml)    e.g. "8"
+# _builder_host    - set by rhel_image_build; delegate_to target                           e.g., "osbuild-builder-01"

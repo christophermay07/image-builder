@@ -1,0 +1,5 @@
+---
+- name: Restart osbuild-composer
+  ansible.builtin.systemd:
+    name: osbuild-composer
+    state: restarted

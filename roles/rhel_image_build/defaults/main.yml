@@ -1,0 +1,69 @@
+---
+# rhel_image_build role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Role-only (not in group_vars)
+# Osbuild internals, operational tuning, and runtime-computed values.
+# Override any of these via extra-vars when needed.
+
+# Only supported type today is qcow2; changing it requires code changes in downstream roles.
+compose_output_type: qcow2
+
+# Operational tuning for osbuild compose polling. 120 retries x 30s = 60 min max wait.
+compose_timeout_retries: 120
+compose_poll_interval: 30
+
+# Image version baked into blueprint metadata.
+# CalVer (YYYY.M.D) generated at runtime; no sensible static value to put in group_vars.
+# Override with -e for manual builds. Append a suffix for multiple builds per day:
+#   -e image_version_suffix=.2
+#   -e image_version_suffix=.{{ awx_job_id }}
+image_version_suffix: ""
+image_version: "{{ now(utc=true).strftime('%Y.%m.%d') }}{{ image_version_suffix }}"
+
+## Role-specific, Linux profiles (defined in group_vars/all_profiles/linux.yml)
+# Base values are composed via the `_base` + `_profile_specific` pattern in group_vars/all_profiles/linux.yml.
+# Per-profile overrides go in profile_<name>.yml.
+
+profile_linux_packages: []
+blueprint_filesystem_layout: {}
+
+## Cross-role, RHEL targets (defined in group_vars/rhel*_targets.yml)
+# STIG tailoring rules; also read by image_export (build-metadata.json).
+# Empty list means "use the base STIG profile as-is."
+
+stig_unselected_rules: []
+
+## Role-only (not in group_vars)
+# Mirror of stig_unselected_rules for adding rules beyond the base profile.
+# Empty by default; only needed for advanced tailoring.
+
+stig_selected_rules: []
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared paths used by multiple build and export roles.
+
+builder_work_dir: /var/lib/image-builder
+blueprint_dir: "{{ builder_work_dir }}/blueprints"
+image_output_dir: "{{ builder_work_dir }}/output"
+
+## Cross-role, osbuild method (defined in group_vars/method_osbuild.yml)
+# Used by this role and cloud_init_prep.
+
+cloud_init_datasources:
+  - Ec2
+  - Azure
+  - GCE
+  - NoCloud
+
+## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
+# These *must* be provided by the inventory (or set by earlier roles).
+# The role fails with an UndefinedError if they are missing.
+#
+# blueprint_template    - per-OS-family, role-only       (rhel*_targets.yml)    e.g. "rhel-blueprint.toml.j2"
+# os_version            - per-version, cross-role        (rhel_*_*.yml)         e.g. "9.4"
+# profile               - per-profile, cross-role        (profile_*.yml)        e.g. "base"
+# stig_datastream       - per-OS-family, cross-role      (rhel*_targets.yml)    e.g. "ssg-rhel9-ds.xml"
+# stig_profile          - per-OS-family, cross-role      (rhel*_targets.yml)    e.g. "xccdf_...content_profile_stig"

@@ -1,0 +1,22 @@
+---
+profile: production
+skip_list:
+  # Some generated/template playbooks omit task names for brevity
+  #- name[missing]
+  # Role names should not be filesystem paths
+  - role-name[path]
+  # Variables should be prefixed with the role name
+  # For this project, variables are intentionally shared across roles
+  - var-naming[no-role-prefix]
+exclude_paths:
+  - .git/
+  - tests/
+kinds:
+  - playbook: "playbooks/*.yml"
+  - vars: "inventory/group_vars/**/*.yml"
+  - vars: "inventory/host_vars/**/*.yml"
+  - tasks: "roles/*/tasks/*.yml"
+  - handlers: "roles/*/handlers/*.yml"
+  - meta: "roles/*/meta/*.yml"
+  - vars: "roles/*/defaults/*.yml"
+  - vars: "roles/*/vars/*.yml"

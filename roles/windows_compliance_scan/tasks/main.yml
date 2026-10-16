@@ -1,0 +1,99 @@
+---
+# Pre-seal compliance scan using PowerSTIG in audit (Test) mode.
+#
+# Runs on the Windows guest inside the Packer build after STIG
+# remediation and before Sysprep. This is a build-time diagnostic
+# that catches hardening failures early. The post-AMI validation scan
+# (windows_ami_validate role) runs separately after the AMI is
+# registered and produces the authoritative compliance evidence.
+#
+# Output files are prefixed "pre-seal-" to distinguish them from the
+# post-AMI scan results. See ADR-IF-031.
+
+- name: Create compliance output directory
+  ansible.windows.win_file:
+    path: "{{ compliance_output_dir }}"
+    state: directory
+
+- name: Install NuGet package provider
+  ansible.windows.win_shell: |
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+
+- name: Install PowerSTIG module
+  ansible.windows.win_shell: |
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Install-Module -Name PowerSTIG -RequiredVersion '{{ powerstig_version }}' -Force -SkipPublisherCheck
+
+- name: Run PowerSTIG audit and export results
+  ansible.windows.win_shell: |
+    Import-Module PowerSTIG
+
+    $auditParams = @{
+        StigId = '{{ powerstig_stig_id }}'
+    }
+    $results = Get-StigChecklist @auditParams
+
+    $summary = @{
+        stig_id         = '{{ powerstig_stig_id }}'
+        scan_timestamp  = (Get-Date -Format 'o')
+        hostname        = $env:COMPUTERNAME
+        total_rules     = $results.Count
+        passed          = ($results | Where-Object { $_.Status -eq 'Pass' }).Count
+        failed          = ($results | Where-Object { $_.Status -eq 'Fail' }).Count
+        not_applicable  = ($results | Where-Object { $_.Status -eq 'Not_Applicable' }).Count
+        not_reviewed    = ($results | Where-Object { $_.Status -eq 'Not_Reviewed' }).Count
+        rules           = $results | ForEach-Object {
+            @{
+                rule_id = $_.RuleId
+                status  = $_.Status
+                title   = $_.Title
+            }
+        }
+    }
+
+    $summary | ConvertTo-Json -Depth 4 |
+        Set-Content -Path '{{ compliance_output_dir }}\pre-seal-stig-results.json' -Encoding UTF8
+
+- name: Generate HTML compliance report
+  ansible.windows.win_shell: |
+    $json = Get-Content -Path '{{ compliance_output_dir }}\pre-seal-stig-results.json' -Raw |
+            ConvertFrom-Json
+
+    $pass  = $json.passed
+    $fail  = $json.failed
+    $na    = $json.not_applicable
+    $nr    = $json.not_reviewed
+    $total = $json.total_rules
+
+    $rows = ($json.rules | ForEach-Object {
+        $color = switch ($_.status) {
+            'Pass'           { '#d4edda' }
+            'Fail'           { '#f8d7da' }
+            'Not_Applicable' { '#fff3cd' }
+            default          { '#e2e3e5' }
+        }
+        "<tr style='background:$color'><td>$($_.rule_id)</td><td>$($_.status)</td><td>$($_.title)</td></tr>"
+    }) -join "`n"
+
+    $html = @"
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><title>STIG Compliance Report</title>
+    <style>body{font-family:sans-serif;margin:2em}table{border-collapse:collapse;width:100%}
+    td,th{border:1px solid #ccc;padding:6px 10px;text-align:left}th{background:#343a40;color:#fff}</style>
+    </head><body>
+    <h1>STIG Compliance Report &mdash; $($json.stig_id)</h1>
+    <p><strong>Host:</strong> $($json.hostname) &nbsp;|&nbsp;
+       <strong>Scanned:</strong> $($json.scan_timestamp)</p>
+    <p><strong>Pass:</strong> $pass &nbsp;|&nbsp;
+       <strong>Fail:</strong> $fail &nbsp;|&nbsp;
+       <strong>N/A:</strong> $na &nbsp;|&nbsp;
+       <strong>Not Reviewed:</strong> $nr &nbsp;|&nbsp;
+       <strong>Total:</strong> $total</p>
+    <table><tr><th>Rule ID</th><th>Status</th><th>Title</th></tr>
+    $rows
+    </table></body></html>
+    "@
+
+    Set-Content -Path '{{ compliance_output_dir }}\pre-seal-stig-report.html' -Value $html -Encoding UTF8
+  when: compliance_generate_html | bool

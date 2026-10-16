@@ -1,0 +1,48 @@
+---
+# windows_hardening role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+#
+# This role runs inside the Packer guest (not on the builder host).
+
+## Role-only (not in group_vars)
+# STIG PROVIDER: Ansible Lockdown (Windows-2022-STIG, installed as win2022stig)
+#
+# This role is tightly coupled to the MindPoint Group Ansible collection for STIG remediation. The coupling points are:
+#
+#   1. windows_stig_role (below): the FQCN of the role to include
+#   2. Rule override variables: MindPoint exposes per-rule toggles named win2022stig_rule_XXXXXX_enabled; these are set
+#      directly in the Ansible variable namespace (defaults, group_vars, or host_vars) and are picked up automatically
+#      by the included role.
+#   3. The EE must have the collection installed (see ee-images/windows/requirements.yml).
+#
+# To replace MindPoint with another provider (e.g. PowerSTIG for both remediation AND scanning):
+#   - Change windows_stig_role to the new role's FQCN, or replace the include_role task in tasks/main.yml with the new
+#     provider's tasks.
+#   - Remove any win2022stig_* override variables from defaults and group_vars/host_vars; add the new provider's
+#     equivalents.
+#   - Update the EE requirements to install the new collection/module.
+#   - Note: windows_compliance_scan already uses PowerSTIG for auditing; if remediation also moves to PowerSTIG,
+#     consider whether the two roles should be merged.
+#
+# MindPoint Group / Ansible Lockdown STIG rule overrides
+# The role exposes per-rule toggle variables named wn22_XX_NNNNNN (default: true), where XX is the 2-character STIG ID
+# prefix (e.g., cc, so, ac) and NNNNNN is the 6-digit control number. Setting a toggle to false skips that control.
+#
+# These are native MindPoint/Lockdown variables, not variables owned by this role. They are picked up from the Ansible
+# variable namespace automatically; they do NOT need to be passed via include_role vars:.
+#
+# Example:
+#   wn22_cc_000500: false  # Defer WinRM Service Basic auth (V-254381) during build. See ADR-IF-025.
+
+## Cross-role, Windows targets (defined in group_vars/windows_targets.yml)
+# Also read by image_release_publish templates.
+
+windows_stig_role: "win2022stig"
+
+## Role-specific, Windows profiles (defined in group_vars/all_profiles/windows.yml)
+# Per-profile customization; defaults produce a minimal configuration.
+
+profile_windows_extra_features: []
+profile_windows_registry_entries: {}

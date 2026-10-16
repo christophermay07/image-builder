@@ -1,0 +1,78 @@
+---
+# Builder configuration; called by configure_builders.yml against the "builders" group (both osbuild_builders AND
+# packer_builders).
+#
+# This role installs different tooling depending on which child group the host belongs to. The group_names check below
+# is how one role serves both builder types without needing two separate roles.
+#
+# Variables used here come from the builder's group_vars:
+#   builder_packages     → group_vars/osbuild_builders.yml or packer_builders.yml
+#   validation_packages  → same
+#   builder_work_dir etc → group_vars/builders.yml (shared)
+
+# Both builder types get their type-specific packages.
+- name: Install builder packages
+  ansible.builtin.dnf:
+    name: "{{ builder_packages }}"
+    state: present
+  when: builder_packages | length > 0
+
+- name: Install image validation tools
+  ansible.builtin.dnf:
+    name: "{{ validation_packages }}"
+    state: present
+  when: validation_packages | length > 0
+
+# Only osbuild_builders need osbuild-composer. The group_names check ensures this doesn't run on packer_builders, which
+# don't have it.
+- name: Enable and start osbuild-composer socket
+  ansible.builtin.systemd:
+    name: osbuild-composer.socket
+    state: started
+    enabled: true
+  when: "'osbuild_builders' in group_names"
+
+# Shared directories for both builder types.
+- name: Create work directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ builder_work_dir }}"
+    - "{{ image_output_dir }}"
+    - "{{ report_output_dir }}"
+
+# Only osbuild_builders use osbuild-composer blueprints.
+- name: Create blueprint directory
+  ansible.builtin.file:
+    path: "{{ blueprint_dir }}"
+    state: directory
+    mode: "0755"
+  when: "'osbuild_builders' in group_names"
+
+# Only packer_builders need Packer installed.
+- name: Install Packer (for Windows AMI builds)
+  ansible.builtin.include_tasks: install_packer.yml
+  when: "'packer_builders' in group_names"
+
+# Packer's Ansible provisioner runs ansible-playbook directly on the
+# builder host (not inside the EE). The provisioner playbooks connect
+# to the Windows guest over WinRM and use ansible.windows modules, so
+# the builder needs pywinrm and the ansible.windows collection in its
+# own Python/Ansible environment.
+- name: Install builder-side pip packages (for Packer Ansible provisioner)
+  ansible.builtin.pip:
+    name: "{{ builder_pip_packages }}"
+    state: present
+  when: builder_pip_packages | length > 0
+
+- name: Install builder-side Ansible collections (for Packer Ansible provisioner)
+  ansible.builtin.command:
+    cmd: >-
+      ansible-galaxy collection install
+      {{ item.name }}:{{ item.version | default('*') }}
+      --force
+  loop: "{{ builder_collections }}"
+  changed_when: true
+  when: builder_collections | length > 0

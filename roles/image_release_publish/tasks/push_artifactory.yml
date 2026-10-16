@@ -1,0 +1,76 @@
+---
+# Push AMI compliance artifacts to Artifactory (no qcow2).
+# Uses artifactory_token_scan_upload (scan-upload function). Override to split from image/release-bundle tokens.
+- name: Set Artifactory upload path
+  ansible.builtin.set_fact:
+    artifactory_upload_path: >-
+      {{ artifactory_base_url }}/{{ artifactory_image_repo }}/{{ vm_name }}/{{ build_timestamp }}
+
+- name: Upload pre-seal STIG scan results to Artifactory
+  ansible.builtin.uri:
+    url: "{{ artifactory_upload_path }}/pre-seal-stig-results.json"
+    method: PUT
+    src: "{{ report_output_dir }}/{{ vm_name }}/pre-seal-stig-results.json"
+    headers:
+      Authorization: "Bearer {{ artifactory_token_scan_upload | default(omit) }}"
+    status_code: [201]
+    remote_src: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Upload pre-seal STIG HTML report to Artifactory
+  ansible.builtin.uri:
+    url: "{{ artifactory_upload_path }}/pre-seal-stig-report.html"
+    method: PUT
+    src: "{{ report_output_dir }}/{{ vm_name }}/pre-seal-stig-report.html"
+    headers:
+      Authorization: "Bearer {{ artifactory_token_scan_upload | default(omit) }}"
+    status_code: [201]
+    remote_src: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Upload post-AMI STIG scan results to Artifactory
+  ansible.builtin.uri:
+    url: "{{ artifactory_upload_path }}/post-seal-stig-results.json"
+    method: PUT
+    src: "{{ report_output_dir }}/{{ vm_name }}/post-seal-stig-results.json"
+    headers:
+      Authorization: "Bearer {{ artifactory_token_scan_upload | default(omit) }}"
+    status_code: [201]
+    remote_src: true
+  delegate_to: "{{ _builder_host }}"
+  when: os_family | default('') == 'windows'
+
+- name: Upload post-AMI STIG HTML report to Artifactory
+  ansible.builtin.uri:
+    url: "{{ artifactory_upload_path }}/post-seal-stig-report.html"
+    method: PUT
+    src: "{{ report_output_dir }}/{{ vm_name }}/post-seal-stig-report.html"
+    headers:
+      Authorization: "Bearer {{ artifactory_token_scan_upload | default(omit) }}"
+    status_code: [201]
+    remote_src: true
+  delegate_to: "{{ _builder_host }}"
+  when: os_family | default('') == 'windows'
+
+- name: Upload FIPS verification output to Artifactory
+  ansible.builtin.uri:
+    url: "{{ artifactory_upload_path }}/fips-verify.json"
+    method: PUT
+    src: "{{ report_output_dir }}/{{ vm_name }}/fips-verify.json"
+    headers:
+      Authorization: "Bearer {{ artifactory_token_scan_upload | default(omit) }}"
+    status_code: [201]
+    remote_src: true
+  delegate_to: "{{ _builder_host }}"
+  when: os_family | default('') == 'windows'
+
+- name: Upload build metadata to Artifactory
+  ansible.builtin.uri:
+    url: "{{ artifactory_upload_path }}/build-metadata.json"
+    method: PUT
+    src: "{{ report_output_dir }}/{{ vm_name }}/build-metadata.json"
+    headers:
+      Authorization: "Bearer {{ artifactory_token_scan_upload | default(omit) }}"
+    status_code: [201]
+    remote_src: true
+  delegate_to: "{{ _builder_host }}"

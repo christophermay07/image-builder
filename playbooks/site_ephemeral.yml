@@ -1,0 +1,45 @@
+---
+# Full image build pipeline with ephemeral builders (CLI usage).
+#
+# Same as site.yml but provisions fresh EC2 instances at the start and terminates them at the end, instead of
+# starting/stopping persistent builders.
+#
+# The middle of the pipeline (configure, build, distribute) is identical between static and ephemeral modes; only the
+# bookends change.
+#
+# In AAP, this sequence is the "Image Build Pipeline (Ephemeral)" Workflow Template (see aap-config
+# workflow_templates.yml).
+#
+# Use --limit to scope which targets are built (same as site.yml):
+#   ansible-playbook playbooks/site_ephemeral.yml
+#   ansible-playbook playbooks/site_ephemeral.yml --limit rhel9_targets
+#
+# Override builder count for scaling:
+#   ansible-playbook playbooks/site_ephemeral.yml \
+#     -e '{"ephemeral_builder_count": {"osbuild": 3, "packer": 2}}'
+
+# Where each step actually runs:
+#   provision_builders → localhost  (AWS API calls, creates instances)
+#   configure_builders → builders   (SSH to real EC2 instances)
+#   build_rhel         → phantom hosts  (delegate_to real builders)
+#   build_windows      → phantom hosts  (delegate_to real builders)
+#   distribute_images  → localhost  (AWS/Artifactory API calls)
+#   teardown_builders  → localhost  (AWS API calls, terminates instances)
+
+- name: Provision ephemeral builder EC2 instances
+  ansible.builtin.import_playbook: provision_builders.yml
+
+- name: Configure builder hosts
+  ansible.builtin.import_playbook: configure_builders.yml
+
+- name: Build RHEL images with Image Builder
+  ansible.builtin.import_playbook: build_rhel.yml
+
+- name: Build Windows images
+  ansible.builtin.import_playbook: build_windows.yml
+
+- name: Distribute finished images
+  ansible.builtin.import_playbook: distribute_images.yml
+
+- name: Terminate ephemeral builder EC2 instances
+  ansible.builtin.import_playbook: teardown_builders.yml

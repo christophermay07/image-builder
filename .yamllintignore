@@ -1,0 +1,5 @@
+# Directories for yamllint to skip
+.ansible/
+.git/
+tmp_collections/
+.venv

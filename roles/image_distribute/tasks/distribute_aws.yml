@@ -1,0 +1,77 @@
+---
+# AWS distribution: copy AMIs across regions and share with target accounts.
+# Uses aws_distribute_* credentials (distribute function). Override to split from build/cleanup.
+
+# RHEL sets aws_ami_id; Windows sets windows_ami_id. Nested default falls through to whichever exists.
+- name: Determine source AMI ID
+  ansible.builtin.set_fact:
+    _source_ami: "{{ aws_ami_id | default(windows_ami_id | default('')) }}"
+
+- name: Fail if no AMI ID available
+  ansible.builtin.fail:
+    msg: "No AMI ID found for {{ vm_name }}. Build may have failed."
+  when: _source_ami | length == 0
+
+- name: Copy AMI to target regions
+  amazon.aws.ec2_ami_copy:
+    source_region: "{{ aws_region }}"
+    source_image_id: "{{ _source_ami }}"
+    region: "{{ item }}"
+    name: "{{ vm_name }}"
+    description: "{{ vm_name }} - {{ profile }} - {{ os_version }}"
+    tags:
+      Name: "{{ vm_name }}"
+      os_family: "{{ os_family }}"
+      os_version: "{{ os_version }}"
+      profile: "{{ profile }}"
+      stig_applied: "true"
+      source_region: "{{ aws_region }}"
+      source_ami: "{{ _source_ami }}"
+    wait: true
+    access_key: "{{ aws_distribute_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_distribute_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_distribute_session_token | default(omit, true) }}"
+  loop: "{{ ami_target_regions }}"
+  register: ami_copies
+  delegate_to: "{{ _builder_host }}"
+  when: ami_target_regions | length > 0
+
+- name: Share AMI with target accounts (source region)
+  amazon.aws.ec2_ami:
+    image_id: "{{ _source_ami }}"
+    region: "{{ aws_region }}"
+    launch_permissions:
+      user_ids: "{{ ami_target_accounts }}"
+    state: present
+    access_key: "{{ aws_distribute_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_distribute_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_distribute_session_token | default(omit, true) }}"
+  delegate_to: "{{ _builder_host }}"
+  when: ami_target_accounts | length > 0
+
+- name: Share copied AMIs with target accounts (other regions)
+  amazon.aws.ec2_ami:
+    image_id: "{{ item.image_id }}"
+    region: "{{ item.item }}"
+    launch_permissions:
+      user_ids: "{{ ami_target_accounts }}"
+    state: present
+    access_key: "{{ aws_distribute_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_distribute_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_distribute_session_token | default(omit, true) }}"
+  loop: "{{ ami_copies.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('N/A') }}"
+  when:
+    - ami_target_accounts | length > 0
+    - ami_copies.results is defined
+  delegate_to: "{{ _builder_host }}"
+
+- name: Log distribution summary
+  ansible.builtin.debug:
+    msg: >-
+      AMI {{ _source_ami }} ({{ vm_name }}) distributed:
+      regions={{ ([aws_region] + ami_target_regions) | join(', ') }},
+      {# NOTE: join always returns a string, so default('none') only fires if the var is undefined, #}
+      {# not if the list is empty (join on [] returns ''). An empty list shows as blank here. #}
+      shared_with={{ ami_target_accounts | join(', ') | default('none') }}

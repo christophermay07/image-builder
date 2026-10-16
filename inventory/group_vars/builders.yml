@@ -1,0 +1,29 @@
+---
+# Connection settings for builder EC2 instances.
+#
+# Applies to all hosts in the "builders" group (both osbuild_builders
+# and packer_builders), since both are children of "builders" in
+# targets.yml.
+#
+# These are the REAL EC2 instances (not phantom hosts). They're
+# discovered at runtime by aws_ec2.yml and are the machines where
+# osbuild-composer composes and Packer builds actually execute.
+# configure_builders.yml targets "hosts: builders" to set them up.
+ansible_user: ec2-user
+
+# Path to the SSH private key for connecting to builder instances.
+# Must be supplied at runtime -- there is no usable default.
+#
+# AAP (production):  The "builder_ssh_key" machine credential
+#   (see aap-config credentials.yml) injects the private key
+#   automatically, so this variable is typically unused -- AAP
+#   overrides ansible_ssh_private_key_file via credential injection.
+#
+# CLI / local dev:   Pass the path with -e, e.g.:
+#   -e builder_ssh_key_path=~/.ssh/builder-key.pem
+#
+# The key must match the EC2 key pair on the target instances:
+#   - Static builders:    whatever key pair was assigned at launch.
+#   - Ephemeral builders: the key pair named by
+#     ephemeral_builder_key_name in group_vars/all.yml.
+ansible_ssh_private_key_file: "{{ builder_ssh_key_path }}"

@@ -1,0 +1,19 @@
+---
+# Remove finished composes for this blueprint to free disk space.
+- name: List composes for this blueprint
+  ansible.builtin.command:
+    cmd: composer-cli compose list finished
+  register: finished_composes
+  changed_when: false
+  delegate_to: "{{ _builder_host }}"
+
+- name: Delete old composes for this blueprint
+  ansible.builtin.command:
+    cmd: "composer-cli compose delete {{ item.split()[0] }}"
+  # select('search', ...) keeps only stdout lines whose text contains the blueprint name (vm_name).
+  loop: "{{ finished_composes.stdout_lines | select('search', vm_name) | list }}"
+  loop_control:
+    label: "{{ item.split()[0] | default(item) }}"
+  failed_when: false
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"

@@ -1,0 +1,102 @@
+---
+# RHEL Image Builder pipeline.
+#
+# Targets phantom hosts in "method_osbuild" (targets.yml dimension 4). Each phantom host carries variables from
+# four groups:
+#   OS family (rhel8/9_targets) → blueprint template, STIG profile
+#   OS version (rhel_8_10/9_4)  → version string
+#   Profile (profile_base/...)  → extra packages, post-tasks
+#   Method (method_osbuild) → builder_group = "osbuild_builders"
+#
+# Phantom hosts are NOT real machines and will never be reachable via SSH; gather_facts is disabled because there's
+# nothing to gather. Ansible resolves the host only so it can merge the right group_vars. All roles delegate_to a real
+# builder via builder_group. The rhel_image_build role round-robins across available builders in the osbuild_builders
+# group (see that role for details). So even though "hosts: method_osbuild" looks like we're targeting machines,
+# no SSH connection is made to any phantom host.
+#
+# serial is set to the number of available osbuild_builders. This is because osbuild-composer can only run one compose at
+# a time per builder, so we can run at most N composes in parallel where N is the number of builders. The round-robin in
+# the role ensures each builder in a batch gets a different target. With 1 builder this evaluates to serial: 1 (same as
+# before).
+#
+# Use --limit to scope which RHEL variants are built:
+#   --limit rhel9_targets        # all RHEL 9
+#   --limit rhel_9_4             # all RHEL 9.4 profiles
+#   --limit rhel-9.4-base        # exactly one build
+#   --limit 'rhel9_targets:&profile_base'  # RHEL 9 x base only
+#
+# Failure handling: block/rescue catches per-target failures. The play continues through all targets, then a second play
+# reports which images failed. In the AAP workflow, this job uses always_nodes (not failure_nodes) to reach the
+# Distribute step, so a failure here won't kill the Windows branch or skip distribution of successful images.
+- name: Build RHEL images with Image Builder
+  hosts: method_osbuild
+  gather_facts: false
+  # default([1]) so that a missing group yields length 1 (serial: 1) rather than 0.
+  serial: "{{ groups['osbuild_builders'] | default([1]) | length }}"
+  tasks:
+    - name: Build, harden, and export RHEL image
+      block:
+        - name: Build RHEL image
+          ansible.builtin.include_role:
+            name: rhel_image_build
+          tags: [build, rhel, compose]
+
+        - name: Fix RHEL 8 fstab (inode64 + stale /proc/cmdline mount)
+          ansible.builtin.include_role:
+            name: rhel8_fstab_fixup
+          tags: [build, rhel, fstab-fixup]
+
+        - name: Harden RHEL image
+          ansible.builtin.include_role:
+            name: rhel_hardening
+          tags: [validate, rhel, stig]
+
+        - name: Prepare cloud-init
+          ansible.builtin.include_role:
+            name: cloud_init_prep
+          tags: [cloud-init, rhel]
+
+        - name: Export image artifacts
+          ansible.builtin.include_role:
+            name: image_export
+          tags: [export, rhel, artifactory]
+
+        - name: Convert to cloud formats
+          ansible.builtin.include_role:
+            name: cloud_convert
+          tags: [convert, rhel, cloud]
+
+      rescue:
+        # Failures are stored on localhost (the only stable host across the run; phantom hosts aren't real, and the
+        # builder might be the thing that broke). The second play below reads this list to produce a summary.
+        - name: Record build failure
+          ansible.builtin.set_fact:
+            _build_failed: true
+            _build_error: "{{ ansible_failed_result | default(ansible_failed_task) | default('unknown error') }}"
+          delegate_facts: false
+          delegate_to: localhost
+
+        - name: Append to failure list
+          ansible.builtin.set_fact:
+            # Read the accumulated list from localhost (may not exist yet), append this failure, and
+            # write it back. delegate_to + delegate_facts stores it on localhost for the reporting play.
+            build_failures: >-
+              {{ (hostvars['localhost']['build_failures'] | default([])) +
+                 [{'target': inventory_hostname, 'error': _build_error}] }}
+          delegate_facts: true
+          delegate_to: localhost
+
+# Second play: runs on localhost to report failures collected above. The rescue blocks delegate_to localhost to store
+# the failure list, so this play just reads that accumulated list and fails the job template if anything broke.
+- name: Report RHEL build failures
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Report failed RHEL builds
+      ansible.builtin.fail:
+        msg: |-
+          {{ build_failures | length }} RHEL image build(s) failed:
+          {% for f in build_failures %}
+          - {{ f.target }}: {{ f.error }}
+          {% endfor %}
+      when: (build_failures | default([])) | length > 0

@@ -1,0 +1,44 @@
+---
+# Dynamic inventory plugin that discovers builder EC2 instances.
+#
+# How this connects to the rest of the pipeline:
+#
+#   1. start_builders.yml starts the EC2 instances (they begin in "stopped" state). Once running, they appear here.
+#
+#   2. The "filters" section below ensures only running instances tagged purpose=image-builder show up. The tag value
+#      must match builder_instance_tags in group_vars/all.yml.
+#
+#   3. The "keyed_groups" section sorts each instance into a group based on its builder_type EC2 tag:
+#        builder_type=osbuild  →  group "osbuild_builders"
+#        builder_type=packer   →  group "packer_builders"
+#      These group names must match the children under "builders" in targets.yml. The same names are produced on the
+#      phantom-host side by builder_group in all.yml ("{{ build_method }}_builders"), so the build_method value in each
+#      method_*.yml and the builder_type EC2 tag must agree. See the comment in all.yml for details.
+#
+#   4. Once in a group, each builder inherits variables from group_vars/osbuild_builders.yml or
+#      group_vars/packer_builders.yml (packages, tooling) and group_vars/builders.yml (SSH settings).
+#
+#   5. Build roles (rhel_image_build, windows_image_build) assign _builder_host once per phantom host using round-robin
+#      across the builder group, then delegate_to it. All downstream roles inherit that assignment.
+#
+# In AAP, this inventory source has update_on_launch: true, so the builder list refreshes each time a job template runs.
+plugin: amazon.aws.aws_ec2
+regions:
+  - us-east-1  # TODO: confirm region
+filters:
+  "tag:purpose": image-builder       # must match builder_instance_tags in group_vars/all.yml
+  instance-state-name: running       # only shows instances after start_builders.yml runs
+keyed_groups:
+  # Creates inventory groups from the builder_type EC2 tag.
+  # The ~ '_builders' concatenation in the key expression appends the suffix:
+  #   tag value "osbuild" → group name "osbuild_builders"
+  #   tag value "packer"  → group name "packer_builders"
+  # If an instance is missing this tag, it won't land in either group
+  # and builds that need it will fail at the builder guard check.
+  - key: tags.builder_type ~ '_builders'
+    prefix: ''
+    separator: ''
+hostnames:
+  - private-ip-address
+compose:
+  ansible_host: private_ip_address

@@ -1,0 +1,14 @@
+{
+  "image_name": "{{ vm_name }}",
+  "os_family": "{{ os_family }}",
+  "os_version": "{{ os_version }}",
+  "image_version": "{{ image_version | default('unknown') }}",
+  "profile": "{{ profile }}",
+  "build_method": "{{ build_method }}",
+  "build_timestamp": "{{ build_timestamp }}",
+  "cloud_image_id": "{{ cloud_image_id | default(windows_ami_id | default('N/A')) }}",
+  "source_image": "{{ source_image | default(source_ami | default('N/A')) }}",
+  "stig_role": "{{ windows_stig_role | default('N/A') }}",
+  "builder_host": "{{ _builder_host }}",
+  "cloud_targets": {{ cloud_targets | to_json }}
+}

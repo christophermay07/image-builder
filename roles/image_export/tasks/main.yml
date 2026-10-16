@@ -1,0 +1,67 @@
+---
+# Export the built qcow2 image: run final compliance scan, generate build metadata, bundle everything, and push to
+# Artifactory.
+
+# _builder_host is inherited from rhel_image_build (set once per phantom host via round-robin; see that role).
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Verify qcow2 exists
+  ansible.builtin.stat:
+    path: "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+  register: qcow2_stat
+  failed_when: not qcow2_stat.stat.exists
+  delegate_to: "{{ _builder_host }}"
+
+- name: Compress qcow2 image
+  ansible.builtin.command:
+    cmd: >-
+      qemu-img convert -c -O qcow2
+      {{ image_output_dir }}/{{ vm_name }}.qcow2
+      {{ image_output_dir }}/{{ vm_name }}-compressed.qcow2
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Replace original with compressed image
+  ansible.builtin.command:
+    cmd: >-
+      mv {{ image_output_dir }}/{{ vm_name }}-compressed.qcow2
+      {{ image_output_dir }}/{{ vm_name }}.qcow2
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Generate build metadata
+  ansible.builtin.template:
+    src: build-metadata.json.j2
+    dest: "{{ report_output_dir }}/{{ vm_name }}-build-metadata.json"
+    mode: "0644"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Create release bundle directory
+  ansible.builtin.file:
+    path: "{{ image_output_dir }}/release/{{ vm_name }}"
+    state: directory
+    mode: "0755"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Assemble release bundle
+  ansible.builtin.shell: >-
+    cp {{ image_output_dir }}/{{ vm_name }}.qcow2
+    {{ image_output_dir }}/release/{{ vm_name }}/ &&
+    cp {{ report_output_dir }}/{{ vm_name }}-oscap-report.html
+    {{ image_output_dir }}/release/{{ vm_name }}/ &&
+    cp {{ report_output_dir }}/{{ vm_name }}-oscap-results.xml
+    {{ image_output_dir }}/release/{{ vm_name }}/ &&
+    cp {{ report_output_dir }}/{{ vm_name }}-build-metadata.json
+    {{ image_output_dir }}/release/{{ vm_name }}/
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Push release bundle to Artifactory
+  ansible.builtin.include_tasks: push_artifactory.yml
+
+- name: Create Artifactory Release Bundle
+  ansible.builtin.include_role:
+    name: artifactory_release_bundle

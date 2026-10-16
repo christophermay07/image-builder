@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: "the client"
+  license: ""
+  role_name: artifactory_release_bundle
+  description: "Create and sign JFrog Release Bundle v2"
+  min_ansible_version: "2.16"
+dependencies: []

@@ -1,0 +1,52 @@
+---
+# Verify FIPS is properly configured in the built image without booting it.
+# Mounts the qcow2 read-only and checks crypto-policies and kernel cmdline.
+
+- name: Create temporary mount point
+  ansible.builtin.file:
+    path: "{{ image_mount_point }}"
+    state: directory
+    mode: "0755"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Mount image read-only for FIPS verification
+  ansible.builtin.command:
+    cmd: guestmount -a {{ image_path }} -i --ro {{ image_mount_point }}
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Check crypto-policies state
+  ansible.builtin.command:
+    cmd: cat {{ image_mount_point }}/etc/crypto-policies/state/current
+  register: crypto_policy
+  changed_when: false
+  delegate_to: "{{ _builder_host }}"
+
+- name: Verify crypto policy is FIPS
+  ansible.builtin.assert:
+    that:
+      - "'FIPS' in crypto_policy.stdout"
+    fail_msg: "FIPS crypto policy not set. Found: {{ crypto_policy.stdout }}"
+    success_msg: "FIPS crypto policy verified: {{ crypto_policy.stdout | trim }}"
+
+- name: Read boot configuration for kernel cmdline
+  ansible.builtin.shell: >-
+    cat {{ image_mount_point }}/boot/loader/entries/*.conf 2>/dev/null ||
+    cat {{ image_mount_point }}/boot/grub2/grubenv 2>/dev/null ||
+    echo "NO_BOOT_CONFIG_FOUND"
+  register: boot_config
+  changed_when: false
+  delegate_to: "{{ _builder_host }}"
+
+- name: Verify fips=1 in kernel parameters
+  ansible.builtin.assert:
+    that:
+      - "'fips=1' in boot_config.stdout"
+    fail_msg: "fips=1 not found in kernel parameters"
+    success_msg: "fips=1 confirmed in kernel parameters"
+
+- name: Unmount image after FIPS check
+  ansible.builtin.command:
+    cmd: guestunmount {{ image_mount_point }}
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"

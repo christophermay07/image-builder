@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: "the client"
+  license: ""
+  role_name: windows_image_build
+  description: "Build Windows images from cloud AMI using Packer amazon-ebs"
+  min_ansible_version: "2.16"
+dependencies: []

@@ -1,0 +1,11 @@
+---
+# Distribute finished images to target regions and accounts per cloud provider. Targets all vm_targets; the role
+# dispatches per cloud_targets.
+#
+# Currently implemented: AWS (AMI copy + account sharing). Future: Azure Compute Gallery, GCP image sharing.
+- name: Distribute images
+  hosts: vm_targets
+  gather_facts: false
+  roles:
+    - role: image_distribute
+      tags: [distribute]

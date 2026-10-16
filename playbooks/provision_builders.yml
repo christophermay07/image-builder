@@ -1,0 +1,153 @@
+---
+# Provision ephemeral builder EC2 instances for a single pipeline run. Replaces start_builders.yml in the ephemeral
+# pipeline (site_ephemeral.yml).
+#
+# Runs entirely on localhost (connection: local). No SSH happens here; every task is an AWS API call. Once instances
+# are running, the aws_ec2.yml inventory plugin discovers them and sorts them into osbuild_builders / packer_builders
+# groups, exactly as it does for static builders.
+#
+# Instances are tagged with ephemeral=true in addition to the standard purpose=image-builder and builder_type tags. This
+# lets teardown_builders.yml find and terminate only ephemeral instances without touching static builders.
+#
+# Builder count is configurable via ephemeral_builder_count (dict). Override with --extra-vars to scale:
+#   -e '{"ephemeral_builder_count": {"osbuild": 3, "packer": 2}}'
+#
+# All configuration (AMI IDs, instance type, subnet, SG, key pair) comes from group_vars/all.yml. See the "Ephemeral
+# builder settings" section there.
+#
+# Resilience: if some instances fail to launch or reach SSH, they are logged and excluded. The pipeline continues as
+# long as at least one builder per type starts successfully.
+- name: Provision ephemeral builder EC2 instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    - name: Validate ephemeral builder AMI variables are set
+      ansible.builtin.fail:
+        msg: >-
+          Ephemeral builder AMIs are not configured. Set
+          ephemeral_builder_ami_osbuild and
+          ephemeral_builder_ami_packer in group_vars/all.yml or via
+          --extra-vars before running this playbook.
+      when: >-
+        (ephemeral_builder_ami_osbuild | default('')) == '' or
+        (ephemeral_builder_ami_packer | default('')) == ''
+
+    # Each builder type is launched as a separate ec2_instance call so they get the correct builder_type tag
+    # (osbuild vs packer). The ephemeral=true tag is how teardown_builders.yml identifies instances to terminate.
+    - name: Launch ephemeral osbuild instances
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        image_id: "{{ ephemeral_builder_ami_osbuild }}"
+        instance_type: "{{ ephemeral_builder_instance_type }}"
+        count: "{{ ephemeral_builder_count.osbuild | default(1) }}"
+        key_name: "{{ ephemeral_builder_key_name }}"
+        vpc_subnet_id: "{{ ephemeral_builder_subnet_id }}"
+        security_group: "{{ ephemeral_builder_security_group }}"
+        tags: >-
+          {{ builder_instance_tags | combine({
+             'builder_type': 'osbuild',
+             'ephemeral': 'true',
+             'Name': 'ephemeral-osbuild-builder'}) }}
+        wait: true
+        wait_timeout: 300
+      register: _osbuild_launch
+
+    - name: Launch ephemeral packer_builder instances
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        image_id: "{{ ephemeral_builder_ami_packer }}"
+        instance_type: "{{ ephemeral_builder_instance_type }}"
+        count: "{{ ephemeral_builder_count.packer | default(1) }}"
+        key_name: "{{ ephemeral_builder_key_name }}"
+        vpc_subnet_id: "{{ ephemeral_builder_subnet_id }}"
+        security_group: "{{ ephemeral_builder_security_group }}"
+        tags: >-
+          {{ builder_instance_tags | combine({
+             'builder_type': 'packer',
+             'ephemeral': 'true',
+             'Name': 'ephemeral-packer-builder'}) }}
+        wait: true
+        wait_timeout: 300
+      register: _packer_builder_launch
+
+    - name: Build combined instance list
+      ansible.builtin.set_fact:
+        # Merge both launch results into one list; default([]) guards against either type being skipped.
+        _all_launched: >-
+          {{ (_osbuild_launch.instances | default([])) +
+             (_packer_builder_launch.instances | default([])) }}
+
+    - name: Report launched instances
+      ansible.builtin.debug:
+        msg: >-
+          Launched {{ _all_launched | length }} ephemeral builder(s):
+          {{ _all_launched | map(attribute='instance_id') | list }}
+
+    - name: Fail if no instances launched
+      ansible.builtin.fail:
+        msg: >-
+          No ephemeral builder instances launched successfully. Check
+          AMI IDs, subnet, security group, and key pair settings in
+          group_vars/all.yml.
+      when: _all_launched | length == 0
+
+    # SSH wait per instance; same pattern as start_builders.yml. Instances that fail SSH are logged but don't block
+    # the pipeline.
+    - name: Wait for SSH on each launched builder
+      ansible.builtin.wait_for:
+        host: "{{ item.private_ip_address }}"
+        port: 22
+        timeout: 300
+      loop: "{{ _all_launched }}"
+      loop_control:
+        label: "{{ item.instance_id }} ({{ item.private_ip_address }})"
+      register: _ssh_results
+      ignore_errors: true
+
+    - name: Identify instances that failed SSH
+      ansible.builtin.set_fact:
+        # Two selectattr passes: the first keeps results that have a 'failed' key (skipped results
+        # may not), the second keeps only those where failed=true. Then map pulls out the original
+        # instance_id from each result's item (the loop variable from the wait_for task).
+        _ssh_failed_ids: >-
+          {{ _ssh_results.results | default([])
+             | selectattr('failed', 'defined')
+             | selectattr('failed')
+             | map(attribute='item.instance_id') | list }}
+
+    - name: Warn about instances that failed SSH
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Ephemeral builder {{ item }} launched but SSH is not
+          reachable. It will be excluded from this pipeline run.
+      loop: "{{ _ssh_failed_ids }}"
+      when: _ssh_failed_ids | length > 0
+
+    - name: Calculate healthy builder count
+      ansible.builtin.set_fact:
+        # Healthy = total launched minus those that failed SSH.
+        _healthy_count: >-
+          {{ _all_launched | length - (_ssh_failed_ids | length) }}
+
+    - name: Fail if no builders are healthy
+      ansible.builtin.fail:
+        msg: >-
+          No ephemeral builder instances are reachable.
+          {{ _ssh_failed_ids | length }} instance(s) failed SSH:
+          {{ _ssh_failed_ids }}. Cannot proceed.
+      when: _healthy_count | int == 0
+
+    - name: Report healthy builder summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ _healthy_count }} of {{ _all_launched | length }}
+          ephemeral builder(s) are healthy and ready.
+          {# If any instances failed SSH, list them; otherwise print a simple success message. #}
+          {# The ~ operator is Jinja2 string concatenation. #}
+          {{ (_ssh_failed_ids | length > 0) | ternary(
+            'Excluded ' ~ (_ssh_failed_ids | length) ~
+            ' unreachable instance(s): ' ~
+            _ssh_failed_ids | join(', ') ~ '.',
+            'All instances launched successfully.') }}

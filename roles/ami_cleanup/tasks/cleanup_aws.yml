@@ -1,0 +1,88 @@
+---
+# AWS AMI cleanup: deregister old AMIs and delete their backing EBS snapshots.
+#
+# Retention rules (an AMI is deleted if EITHER condition is true):
+#   - ami_cleanup_keep_count != -1 and the AMI is not in the most recent N
+#   - The AMI's creation_date is before ami_cleanup_older_than
+#
+# Both filters are applied independently per region: date-expired AMIs are removed first, then the count ceiling is
+# enforced on what remains. This avoids double-counting (an AMI can only appear in one of the two buckets).
+#
+# Runs once per phantom host, across the source region and any cross-region copy targets.
+
+- name: Build list of regions to clean
+  ansible.builtin.set_fact:
+    _cleanup_regions: "{{ ([aws_region] + ami_target_regions) | unique }}"
+
+- name: Find matching AMIs in each region
+  amazon.aws.ec2_ami_info:
+    owners:
+      - self
+    filters:
+      "tag:Name": "{{ vm_name }}"
+    region: "{{ item }}"
+    access_key: "{{ aws_cleanup_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_cleanup_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_cleanup_session_token | default(omit, true) }}"
+  loop: "{{ _cleanup_regions }}"
+  register: _ami_query
+  check_mode: false
+  delegate_to: localhost
+
+# Per-region filtering: date-expired AMIs are removed first, then the count ceiling is enforced on what remains. The
+# two sets are disjoint by construction, so no dedup needed. Each AMI dict gets _region injected for the deregister
+# step.
+#
+# The noqa below suppresses a false positive: ansible-lint's static analyzer cannot trace chained vars that depend on
+# the loop item, but the runtime behavior is correct.
+- name: Build per-region cleanup lists # noqa: jinja[invalid]
+  ansible.builtin.set_fact:
+    # Accumulate deletions across regions. Each iteration appends two sets:
+    #   _dated_out: AMIs older than the date threshold
+    #   _count_out: AMIs that exceed the keep-count ceiling (after date filtering)
+    # map('combine', ...) injects _region into each AMI dict so the deregister step knows which region to target.
+    _amis_to_delete: >-
+      {{
+        _amis_to_delete | default([]) +
+        (_dated_out | map('combine', {'_region': _region}) | list) +
+        (_count_out | map('combine', {'_region': _region}) | list)
+      }}
+  vars:
+    _region: "{{ item.item }}"
+    _sorted: "{{ item.images | sort(attribute='creation_date', reverse=true) }}"
+    _date_threshold: "{{ ami_cleanup_older_than }}T00:00:00.000Z"
+    # selectattr 'lt' compares ISO-8601 strings lexicographically (works because the format is sortable).
+    _dated_out: "{{ _sorted | selectattr('creation_date', 'lt', _date_threshold) | list }}"
+    # rejectattr is the complement: AMIs that survived the date filter.
+    _kept_by_date: "{{ _sorted | rejectattr('creation_date', 'lt', _date_threshold) | list }}"
+    # Slice off the excess beyond keep_count. -1 means "keep all" (no count ceiling).
+    _count_out: "{{ _kept_by_date[ami_cleanup_keep_count:] if ami_cleanup_keep_count != -1 else [] }}"
+  loop: "{{ _ami_query.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Log cleanup summary
+  ansible.builtin.debug:
+    msg: >-
+      {{ vm_name }}: {{ _amis_to_delete | length }} AMI(s) to delete
+      (keep_count={{ ami_cleanup_keep_count }},
+      older_than={{ ami_cleanup_older_than }}).
+      {#- Whitespace-stripped {%- if %} conditionally appends the ID list to the same message. -#}
+      {#- map(attribute=...) | join builds a comma-separated string of image IDs. -#}
+      {%- if _amis_to_delete | length > 0 %}
+      IDs: {{ _amis_to_delete | map(attribute='image_id') | join(', ') }}{%-
+      endif %}
+
+- name: Deregister old AMIs and delete backing snapshots
+  amazon.aws.ec2_ami:
+    image_id: "{{ item.image_id }}"
+    region: "{{ item._region }}"
+    delete_snapshot: true
+    state: absent
+    access_key: "{{ aws_cleanup_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_cleanup_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_cleanup_session_token | default(omit, true) }}"
+  loop: "{{ _amis_to_delete }}"
+  loop_control:
+    label: "{{ item.image_id }} ({{ item.name | default(vm_name) }}, {{ item.creation_date }}, {{ item._region }})"
+  delegate_to: localhost

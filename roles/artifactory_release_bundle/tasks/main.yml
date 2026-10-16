@@ -1,0 +1,60 @@
+---
+# Create a JFrog Release Bundle v2 that groups every artifact uploaded
+# under the current vm_name/build_timestamp path into a single
+# distributable unit.
+
+# _builder_host is inherited from the build role (set once per phantom host via round-robin; see rhel_image_build).
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+  when: vm_name is not defined
+
+# Split "libs-release-local/images" into repo key ("libs-release-local") and sub-path ("images/...").
+# [1:] drops the repo key; join('/') reassembles the remaining segments into the AQL path.
+- name: Derive Artifactory repo name from image repo path
+  ansible.builtin.set_fact:
+    _artifactory_repo: "{{ artifactory_image_repo.split('/')[0] }}"
+    _artifactory_path: "{{ artifactory_image_repo.split('/')[1:] | join('/') }}/{{ vm_name }}/{{ build_timestamp }}"
+
+- name: Create Release Bundle v2
+  ansible.builtin.uri:
+    url: "{{ artifactory_base_url }}/lifecycle/api/v2/release_bundle"
+    method: POST
+    body_format: json
+    body:
+      release_bundle_name: "{{ vm_name }}"
+      release_bundle_version: "{{ build_timestamp }}"
+      skip_docker_manifest_resolution: true
+      source:
+        aql: >-
+          items.find({
+            "repo": "{{ _artifactory_repo }}",
+            "path": {"$match": "{{ _artifactory_path }}/*"}
+          })
+    headers:
+      Authorization: "Bearer {{ artifactory_token_release_bundle }}"
+      # default(omit, true) treats empty string as undefined, so the header is omitted entirely
+      # when no signing key is configured.
+      X-JFrog-Signing-Key-Name: "{{ release_bundle_signing_key | default(omit, true) }}"
+    status_code: [200, 201]
+  register: _release_bundle_result
+  delegate_to: "{{ _builder_host }}"
+
+- name: Sign Release Bundle
+  ansible.builtin.uri:
+    url: "{{ artifactory_base_url }}/lifecycle/api/v2/release_bundle/{{ vm_name }}/{{ build_timestamp }}/sign"
+    method: POST
+    body_format: json
+    body: {}
+    headers:
+      Authorization: "Bearer {{ artifactory_token_release_bundle }}"
+      X-JFrog-Signing-Key-Name: "{{ release_bundle_signing_key }}"
+    status_code: [200, 201]
+  delegate_to: "{{ _builder_host }}"
+  when: release_bundle_signing_key | default('') | length > 0
+
+- name: Record Release Bundle details
+  ansible.builtin.set_fact:
+    release_bundle_name: "{{ vm_name }}"
+    release_bundle_version: "{{ build_timestamp }}"

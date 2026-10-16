@@ -1,0 +1,31 @@
+---
+- name: Check if Packer is already installed
+  ansible.builtin.stat:
+    path: "{{ packer_binary }}"
+  register: packer_stat
+
+- name: Check installed Packer version
+  ansible.builtin.command: "{{ packer_binary }} version"
+  register: packer_installed_version
+  changed_when: false
+  when: packer_stat.stat.exists
+
+- name: Download Packer
+  ansible.builtin.get_url:
+    url: "{{ packer_download_url }}"
+    dest: /tmp/packer.zip
+    mode: "0644"
+  when: not packer_stat.stat.exists or packer_version not in (packer_installed_version.stdout | default(''))
+
+- name: Extract Packer binary
+  ansible.builtin.unarchive:
+    src: /tmp/packer.zip
+    dest: /usr/local/bin/
+    remote_src: true
+    mode: "0755"
+  when: not packer_stat.stat.exists or packer_version not in (packer_installed_version.stdout | default(''))
+
+- name: Clean up Packer zip
+  ansible.builtin.file:
+    path: /tmp/packer.zip
+    state: absent

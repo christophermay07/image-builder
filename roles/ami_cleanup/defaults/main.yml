@@ -1,0 +1,38 @@
+---
+# ami_cleanup role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Role-specific, all hosts (defined in group_vars/all.yml)
+# Retention policy for AMI cleanup; only used by this role.
+
+# Number of most-recent AMIs to keep per phantom host per region. Set to -1 to disable count-based cleanup (keep all).
+ami_cleanup_keep_count: -1
+
+# ISO date string (YYYY-MM-DD). AMIs created before this date are deleted regardless of keep_count. The far-past
+# default effectively disables date-based cleanup.
+ami_cleanup_older_than: "2000-01-01"
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared AWS settings; also used by image_distribute, cloud_convert, and others.
+
+aws_region: us-east-1
+
+# Additional regions for cross-region AMI copies. This role cleans up AMIs in each of these regions plus aws_region.
+ami_target_regions: []
+
+## AWS credentials (cleanup function)
+# This role performs destructive AWS operations (AMI deregistration, snapshot deletion). Uses the cleanup-scoped
+# credential variables from group_vars/all.yml. To split from build/distribute, override the aws_cleanup_* vars.
+aws_cleanup_access_key_id: ""
+aws_cleanup_secret_access_key: ""
+aws_cleanup_session_token: ""
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# cloud_targets: list of cloud providers (e.g. ['aws', 'azure']). This role dispatches to cleanup_aws.yml when
+# 'aws' is present (`when: "'aws' in cloud_targets"`).
+
+## Upstream facts (set within this role; documented for completeness)
+# vm_name: set unconditionally from inventory_hostname at the top of tasks/main.yml. Used as the AMI Name tag
+# filter when querying AMIs per region.

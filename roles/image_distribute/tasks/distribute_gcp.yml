@@ -1,0 +1,9 @@
+---
+# GCP distribution: share Compute Engine image across projects.
+# Requires google.cloud collection and GCP Service Account credentials.
+
+- name: Distribute to GCP (placeholder)
+  ansible.builtin.debug:
+    msg: >-
+      TODO: Share {{ vm_name }} GCP image across target projects.
+      Requires: google.cloud collection, GCP Service Account in Vault.

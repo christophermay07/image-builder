@@ -1,0 +1,27 @@
+---
+extends: default
+ignore-from-file: .yamllintignore
+rules:
+  line-length:
+    max: 200
+    allow-non-breakable-inline-mappings: true
+  # Allow blank line at end of file
+  empty-lines:
+    max-end: 1
+  truthy:
+    allowed-values: ["true", "false"]
+  braces:
+    max-spaces-inside: 1
+  # Forbid ambiguous octal number literals (e.g. 0777 or 0o777)
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true
+  comments:
+    min-spaces-from-content: 1
+    # Do not force a space when commenting out a variable
+    require-starting-space: false
+  indentation:
+    spaces: 2
+    indent-sequences: true
+  # Allow comments at any indentation level
+  comments-indentation: false

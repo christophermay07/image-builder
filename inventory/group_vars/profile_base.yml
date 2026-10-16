@@ -1,0 +1,4 @@
+---
+# Base profile: vanilla hardened image (FIPS + STIG, no workload extras).
+# Common config inherited from group_vars/all_profiles/.
+profile: base

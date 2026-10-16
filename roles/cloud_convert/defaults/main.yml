@@ -1,0 +1,42 @@
+---
+# cloud_convert role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Role-specific, all hosts (defined in group_vars/all.yml)
+# ami_import_bucket is environment-specific; lives alongside aws_image_output_bucket in all.yml.
+
+ami_import_bucket: "image-pipeline-import"
+
+## Role-only (computed at runtime)
+# Timestamp baked into image metadata. The inline | default() guard in convert_aws.yml makes this safe to omit.
+
+build_timestamp: "{{ ansible_date_time.iso8601 }}"
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared paths and cloud targets used by multiple build and export roles.
+
+builder_work_dir: /var/lib/image-builder
+image_output_dir: "{{ builder_work_dir }}/output"
+
+# Cloud targets for image conversion. Only AWS is active; uncomment others when those pipelines are ready.
+cloud_targets:
+  - aws
+
+## AWS credentials (build function)
+# This role performs build-phase AWS operations (S3 upload, AMI import). Uses the build-scoped credential
+# variables from group_vars/all.yml. To split from other functions, override the aws_build_* vars.
+aws_build_access_key_id: ""
+aws_build_secret_access_key: ""
+aws_build_session_token: ""
+
+## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
+# These *must* be provided by the inventory (or set by earlier roles).
+# The role fails with an UndefinedError if they are missing.
+#
+# profile           - per-profile, cross-role          (profile_*.yml)         e.g. "base"
+# os_version        - per-version, cross-role          (rhel_*_*.yml)          e.g. "9.4"
+# os_family         - per-OS-family, cross-role        (rhel*_targets.yml)     e.g. "rhel9"
+# aws_region        - per-environment, cross-role      (all.yml)               e.g. "us-east-1"
+# _builder_host     - set by rhel_image_build; delegate_to target

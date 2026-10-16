@@ -1,0 +1,52 @@
+---
+# Run an offline compliance scan against the built image using oscap-chroot.
+# The image is not booted; oscap scans the mounted filesystem directly.
+# This generates the compliance report included in the release bundle.
+
+- name: Create mount point for scan
+  ansible.builtin.file:
+    path: "{{ image_mount_point }}"
+    state: directory
+    mode: "0755"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Mount image read-only for compliance scan
+  ansible.builtin.command:
+    cmd: guestmount -a {{ image_path }} -i --ro {{ image_mount_point }}
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Ensure report output directory exists
+  ansible.builtin.file:
+    path: "{{ report_output_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Build oscap-chroot scan command
+  ansible.builtin.set_fact:
+    oscap_scan_cmd: >-
+      oscap-chroot {{ image_mount_point }} xccdf eval
+      --profile {{ stig_profile }}
+      --results {{ report_output_dir }}/{{ vm_name }}-oscap-results.xml
+      --report {{ report_output_dir }}/{{ vm_name }}-oscap-report.html
+      {{ stig_content_dir }}/{{ stig_datastream }}
+
+- name: Run offline compliance scan
+  ansible.builtin.command:
+    cmd: "{{ oscap_scan_cmd }}"
+  register: scan_result
+  # oscap returns 0 (all pass), 1 (error), or 2 (some rules not applicable).
+  # Return code 2 is expected for offline scans (some rules require a running system to evaluate, e.g. process checks,
+  # service status).
+  failed_when: scan_result.rc not in [0, 2]
+  changed_when: false
+  delegate_to: "{{ _builder_host }}"
+
+- name: Unmount image after scan
+  ansible.builtin.command:
+    cmd: guestunmount {{ image_mount_point }}
+  # Always attempt unmount even if scan failed
+  failed_when: false
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"

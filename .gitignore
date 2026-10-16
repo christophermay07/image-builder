@@ -1,0 +1,68 @@
+# Ansible
+*.retry
+ansible.log
+.ansible/
+
+# Ansible collections/roles installed from requirements.yml
+collections/
+
+# Molecule
+.molecule/
+roles/*/molecule/*/instance_config.yml
+roles/*/molecule/*/.molecule/
+
+# Packer
+packer_cache/
+crash.log
+crash.*.log
+
+# Image build artifacts
+*.qcow2
+*.vmdk
+*.vhd
+*.vhdx
+*.ova
+*.ovf
+*.raw
+*.img
+*.iso
+*.ami
+
+# OpenSCAP reports and release bundles
+*.html
+*.xml
+!**/*.yml
+!**/*.yaml
+*.tar.gz
+*.tar
+*.zip
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.*.swp
+\#*\#
+.#*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets; never commit these
+*.vault
+.vault_password
+.env
+credentials.yml
+*_password
+*_secret

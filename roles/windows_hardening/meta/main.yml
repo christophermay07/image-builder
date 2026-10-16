@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: "the client"
+  license: ""
+  role_name: windows_hardening
+  description: "Apply Windows STIG via MindPoint Group collection"
+  min_ansible_version: "2.16"
+dependencies: []

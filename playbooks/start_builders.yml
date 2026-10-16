@@ -1,0 +1,149 @@
+---
+# Start builder EC2 instances and wait for them to be reachable. First step in the pipeline (site.yml) and AAP workflow.
+#
+# Runs entirely on localhost (connection: local). No SSH happens here; every task is an AWS API call made from the
+# Ansible controller. The builder EC2 instances don't even exist in inventory yet; they only appear after aws_ec2.yml
+# re-scans (which happens automatically in AAP via update_on_launch).
+#
+# How it finds builders:
+#   Uses builder_instance_tags (from group_vars/all.yml) to query the EC2 API for instances tagged
+#   purpose=image-builder. This is the same tag the aws_ec2.yml inventory plugin uses, so any instance this playbook
+#   finds will also appear in the dynamic inventory once it's running.
+#
+# What happens after this:
+#   Once instances are running, the aws_ec2 dynamic inventory plugin (update_on_launch: true in AAP) discovers them and
+#   sorts them into osbuild_builders / packer_builders groups. configure_builders.yml then targets "hosts: builders" to
+#   install tooling.
+#
+# Resilience: individual instances that fail to start or become reachable are logged and excluded. The pipeline
+# continues as long as at least one builder starts successfully. Downstream build roles check groups[builder_group] is
+# non-empty before attempting delegation.
+- name: Start builder EC2 instances
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  tasks:
+    # builder_instance_tags comes from group_vars/all.yml: {purpose: image-builder} We look for both stopped (need
+    # starting) and running (already up).
+    - name: Find builder instances by tag
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters: "{{ builder_instance_tags | combine({'instance-state-name': ['stopped', 'running']}) }}"
+        register: builder_instances
+
+    - name: Report discovered builders
+      ansible.builtin.debug:
+        msg: >-
+          Found {{ builder_instances.instances | length }} builder instance(s):
+          {{ builder_instances.instances | map(attribute='instance_id') | list }}
+
+    - name: Fail if no builders found
+      ansible.builtin.fail:
+        msg: >-
+          No builder EC2 instances found matching tags {{ builder_instance_tags }}.
+          Ensure builder instances exist and are tagged correctly.
+      when: builder_instances.instances | length == 0
+
+    - name: Start all stopped builder instances
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        # Filter to instances whose state is 'stopped', then extract just their IDs.
+        instance_ids: >-
+          {{ builder_instances.instances
+             | selectattr('state.name', 'equalto', 'stopped')
+             | map(attribute='instance_id')
+             | list }}
+        state: started
+        wait: false
+      # Only run if there are actually stopped instances to start.
+      when: builder_instances.instances | selectattr('state.name', 'equalto', 'stopped') | list | length > 0
+
+    - name: Wait for all instances to reach running state
+      amazon.aws.ec2_instance_info:
+        region: "{{ aws_region }}"
+        filters: "{{ builder_instance_tags | combine({'instance-state-name': 'running'}) }}"
+      register: running_check
+      until: (running_check.instances | length) >= (builder_instances.instances | length)
+      retries: 30
+      delay: 10
+      ignore_errors: true
+
+    - name: Identify instances that failed to start
+      ansible.builtin.set_fact:
+        _running_ids: >-
+          {{ running_check.instances | map(attribute='instance_id') | list }}
+        # Start from all discovered builders, pull out their IDs, then drop any ID that appears
+        # in the running set -- whatever's left failed to start.
+        _failed_instance_ids: >-
+          {{ builder_instances.instances
+             | map(attribute='instance_id')
+             | reject('in', running_check.instances | map(attribute='instance_id') | list)
+             | list }}
+
+    - name: Warn about instances that failed to start
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Builder {{ item }} failed to reach running state and
+          will be excluded from this pipeline run.
+      loop: "{{ _failed_instance_ids }}"
+      when: _failed_instance_ids | length > 0
+
+    - name: Wait for SSH on each running builder
+      ansible.builtin.wait_for:
+        host: "{{ item.private_ip_address }}"
+        port: 22
+        timeout: 300
+      loop: "{{ running_check.instances }}"
+      loop_control:
+        label: "{{ item.instance_id }} ({{ item.private_ip_address }})"
+      register: ssh_results
+      ignore_errors: true
+
+    - name: Identify instances that failed SSH
+      ansible.builtin.set_fact:
+        # Two selectattr passes: the first keeps results that have a 'failed' key (skipped results
+        # may not), the second keeps only those where failed=true. Then map pulls out the original
+        # instance_id from each result's item (the loop variable from the wait_for task).
+        _ssh_failed_ids: >-
+          {{ ssh_results.results | default([])
+             | selectattr('failed', 'defined')
+             | selectattr('failed')
+             | map(attribute='item.instance_id')
+             | list }}
+
+    - name: Warn about instances that failed SSH
+      ansible.builtin.debug:
+        msg: >-
+          WARNING: Builder {{ item }} started but SSH is not reachable.
+          It will be excluded from this pipeline run.
+      loop: "{{ _ssh_failed_ids }}"
+      when: _ssh_failed_ids | length > 0
+
+    - name: Calculate healthy builder count
+      ansible.builtin.set_fact:
+        _all_failed: "{{ _failed_instance_ids + _ssh_failed_ids }}"
+        # Drop any instance whose ID is in the SSH-failed list; count what remains.
+        _healthy_count: >-
+          {{ running_check.instances
+             | rejectattr('instance_id', 'in', _ssh_failed_ids)
+             | list
+             | length }}
+
+    - name: Fail if no builders are healthy
+      ansible.builtin.fail:
+        msg: >-
+          No builder instances are reachable. Cannot proceed. {{ _all_failed | length }} instance(s) failed:
+          {{ _all_failed }}.
+      when: _healthy_count | int == 0
+
+    - name: Report healthy builder summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ _healthy_count }} of {{ builder_instances.instances | length }}
+          builder(s) are healthy and ready.
+          {# If any instances failed, list them; otherwise print a simple success message. #}
+          {# The ~ operator is Jinja2 string concatenation. #}
+          {{ (_all_failed | length > 0) | ternary(
+            'Excluded ' ~ (_all_failed | length) ~ ' failed instance(s): ' ~ _all_failed | join(', ') ~ '.',
+            'All instances started successfully.') }}
