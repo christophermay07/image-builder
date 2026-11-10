@@ -1,9 +1,9 @@
 ---
-# GCP distribution: share Compute Engine image across projects.
-# Requires google.cloud collection and GCP Service Account credentials.
-
-- name: Distribute to GCP (placeholder)
-  ansible.builtin.debug:
+# TODO: Verify native image approval labels match _published_image.build_id before granting project access.
+# TODO: Share the approved Compute Engine image across configured projects using its native image_id/location.
+# TODO: Use GCP credentials and the google.cloud collection; preserve the common publication-record gate.
+- name: Stop until GCP image distribution is implemented
+  ansible.builtin.fail:
     msg: >-
-      TODO: Share {{ vm_name }} GCP image across target projects.
-      Requires: google.cloud collection, GCP Service Account in Vault.
+      TODO: Implement GCP native approval verification and image distribution.
+      No GCP image copies or sharing permissions have been created.

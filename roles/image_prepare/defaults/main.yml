@@ -1,0 +1,13 @@
+---
+# image_prepare role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared paths used by build, conversion, and export roles.
+builder_work_dir: /var/lib/image-builder
+image_output_dir: "{{ builder_work_dir }}/output"
+
+## Upstream facts (set by earlier plays or roles)
+# _builder_host - assigned builder from rhel_image_build (required)

@@ -4,23 +4,22 @@
 # Every variable the role consumes is listed here so the role is self-documenting.
 # Sections describe where the authoritative definition lives in this project's inventory.
 #
-# Boots a fresh EC2 instance from the newly created Windows AMI, runs a
-# PowerSTIG compliance scan against it (the "post-AMI scan"), downloads
-# results, and terminates the instance. This validates the shipped
-# artifact, not the pre-Sysprep build state.
+# Boots a fresh EC2 instance from the newly created Windows AMI, runs a PowerSTIG compliance scan against it (the
+# "post-AMI scan"), downloads results, and terminates the instance. This validates the shipped artifact, not the
+# pre-Sysprep build state.
 #
-# See ADR-IF-031 for the full rationale.
+# See ADR-IB-031 for the full rationale.
 
 ## Role-only (not in group_vars)
 # Operational tuning, guest-internal paths, and minor toggles; not operator-facing.
 # Override via extra-vars when needed.
 
-# Instance type for the validation EC2 instance. Does not need to be as
-# large as the build instance; the scan is the only workload.
+# Instance type for the validation EC2 instance. Does not need to be as large as the build instance; the scan is the
+# only workload.
 validate_instance_type: "m5.large"
 
-# How long to wait for WinRM to become available on the validation
-# instance (seconds). Includes Windows boot time + userdata execution.
+# How long to wait for WinRM to become available on the validation instance (seconds).
+# Includes Windows boot time + userdata execution.
 validate_winrm_timeout: 900
 
 # WinRM port for the validation instance. Standard WinRM HTTPS port.
@@ -37,34 +36,66 @@ validate_generate_html: true
 validate_result_prefix: "post-seal"
 
 ## Role-specific, Windows targets (defined in group_vars/windows_targets.yml)
-# The post-AMI scan must use the same PowerSTIG version and STIG checklist as the pre-seal scan
-# (windows_compliance_scan role). Both roles reference the shared vars from windows_targets.yml.
-# These validate_* aliases exist so tasks/main.yml can pass them as -e overrides to the child
-# ansible-playbook without the naming collision (the child receives them as powerstig_version /
-# powerstig_stig_id, which is what windows_compliance_scan expects).
+# The post-AMI scan must use the same PowerSTIG version and STIG checklist as the pre-seal scan (windows_compliance_scan
+# role). The checklist comes from windows_*.yml; module settings come from windows_targets.yml.
+# These validate_* aliases exist so tasks/main.yml
+# can pass them as -e overrides to the child ansible-playbook without the naming collision (the child receives them as
+# powerstig_version / powerstig_stig_id, which is what windows_compliance_scan expects).
 
-validate_powerstig_version: "{{ powerstig_version }}"
+validate_powerstig_version: "{{ powerstig_version | default('4.30.0') }}"
 validate_powerstig_stig_id: "{{ powerstig_stig_id }}"
+validate_powerstig_manifest_hash: "{{ powerstig_manifest_hash | default('') }}"
+validate_nuget_provider_version: "{{ nuget_provider_version | default('2.8.5.201') }}"
+
+# These optional module-setting sources retain the inline fallbacks in their aliases above.
+# powerstig_version       - source for validate_powerstig_version; e.g., "4.30.0"
+# powerstig_manifest_hash - source for validate_powerstig_manifest_hash; empty means skip verification
+# nuget_provider_version  - source for validate_nuget_provider_version; e.g., "2.8.5.201"
+
+## Role-only, credential mapping (not in group_vars)
+# Mirrors the build role; include_role defaults do not leak between roles.
+packer_winrm_password: "{{ winrm_admin_password }}"
 
 ## Cross-role, all hosts (defined in group_vars/all.yml)
-# Shared settings used by multiple roles.
+# Shared paths used by multiple roles.
 
 builder_work_dir: /var/lib/image-builder
 report_output_dir: "{{ builder_work_dir }}/reports"
+
+## AWS settings (defined in group_vars/cloud_aws.yml)
 aws_region: us-east-1
 
-## AWS credentials (build function)
-# Reuses the build-scoped credential variables. The validation instance
-# is part of the build process, not distribution.
+# Optional network inputs are omitted when absent; neither has a role default.
+# packer_subnet_id        - per-cloud, role-only (cloud_aws.yml); e.g., "subnet-0123456789abcdef0"
+# validate_security_group - per-cloud, role-only (cloud_aws.yml); e.g., "sg-0123456789abcdef0"
+
+## AWS credentials (build function, defined in group_vars/cloud_aws.yml)
+# Optional explicit overrides: empty values are omitted, leaving authentication to the executing process.
+# Authentication is still required; session tokens are needed only for credentials that use them.
+# These AWS operations execute on the assigned builder, not in the outer job runner.
+# Reuses the build-scoped credential variables. The validation instance is part of the build process, not distribution.
 aws_build_access_key_id: ""
 aws_build_secret_access_key: ""
 aws_build_session_token: ""
 
-## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
-# These *must* be provided by the inventory (or set by earlier roles).
-# The role fails with an UndefinedError if they are missing.
+## REQUIRED FROM INVENTORY OR CALLER (no sensible default)
+# These *must* be provided by the inventory or caller when using the default aliases.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
 #
-# windows_ami_id          - set by windows_image_build (AMI to validate)
-# packer_winrm_password   - reused for validation bootstrap
-# _builder_host           - inherited from windows_image_build
-# vm_name                 - set from inventory_hostname
+# powerstig_stig_id    - per-OS-version, cross-role (windows_*.yml); e.g., "WindowsServer-2022-MS"
+# winrm_admin_password - injected via extra-vars or vault
+
+## Upstream facts (set by earlier plays or roles)
+# Registered or set_fact variables from earlier stages.
+#
+# windows_ami_id              - Windows AMI ID from windows_image_build
+# _builder_host               - builder hostname (set_fact from build role)
+# builder_ansible_workspace   - from windows_image_build via builder_ansible_prepare; private build directory
+# builder_ansible_bin         - from windows_image_build via builder_ansible_prepare; isolated executable directory
+# builder_ansible_environment - from windows_image_build via builder_ansible_prepare; child process environment
+
+## Publication context (from image_build_initialize and the producer)
+# image_build_id - Unique current attempt identity.
+# build_timestamp - Frozen build timestamp for validation evidence.
+# cloud_image_result - Native image identity produced by the current build.

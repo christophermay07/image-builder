@@ -1,0 +1,12 @@
+---
+# Jumphost: hardened bastion host for administrative access.
+# Inherits common config from group_vars/all_profiles/, adds jumphost-specific extras.
+# See all_profiles/README.md for composition rules and YAML syntax notes.
+#
+# TODO: populate with actual jumphost requirements
+profile: jumphost
+
+# Windows profile settings (Windows only for this profile).
+_profile_specific_windows_post_tasks: []
+_profile_specific_windows_extra_features: []
+_profile_specific_windows_registry_entries: {}

@@ -1,194 +1,460 @@
 ---
-# Static inventory: the build matrix and builder group structure.
+# THIS FILE IS GENERATED - DO NOT EDIT
 #
-# There are two kinds of hosts in this file:
+# Source:    inventory/.matrix.yml
+# Generator: inventory/.generate_targets.py
 #
-#   1. BUILDER HOSTS (the "builders" group below): real EC2 instances. The groups here (osbuild_builders,
-#      packer_builders) start empty. They get filled at runtime by the aws_ec2.yml dynamic inventory plugin, which sorts
-#      running EC2 instances into these groups based on their builder_type tag.
+# Why is a generated file committed?  Ansible reads inventory from disk
+# at invocation time; there is no build step where this could be created
+# on the fly.  Committing it also means that matrix changes produce a
+# reviewable diff in PRs.  The generator's --check flag (run in CI)
+# ensures this file never drifts from the matrix definition.
 #
-#        * CURRENT STATE (static builders): persistent EC2 instances that are started/stopped each run. Discovered by
-#          tags via aws_ec2.yml. This inventory file defines the empty groups so Ansible knows they exist before
-#          aws_ec2.yml populates them.
-#
-#        * FUTURE STATE (ephemeral builders): provision_builders.yml will launch fresh EC2 instances from pre-baked AMIs
-#          and tag them identically. The aws_ec2.yml dynamic inventory will discover them the same way; nothing in this
-#          file needs to change when switching from static to ephemeral builders (just be sure to update all the
-#          comments to reflect the current state). The builder groups still start empty, still get filled by
-#          aws_ec2.yml, and the rest of the pipeline is unaware of whether the builders are persistent or ephemeral. The
-#          only difference is an extra tag (ephemeral=true) that teardown_builders uses to terminate them, without
-#          touching static builders, if any still exist).
-#
-#   2. PHANTOM HOSTS (everything under "vm_targets"): These are NOT real machines. Each one (e.g. "rhel-9.4-base")
-#      represents a single image to build. It carries variables from the groups it belongs to. Playbooks target these
-#      "hosts,"" then use delegate_to to run the actual work on a real builder.
-#
-# Each host is listed as `hostname: {}`; the {} means "no host-level variables." All variables come from group_vars/
-# files, resolved by which groups the host belongs to. A host in multiple groups inherits variables from ALL of them
-# (Ansible merges by precedence).
-#
-# To add a new image variant, just add it to the right groups here and create any new group_vars/ files. No playbook or
-# role changes needed. See README.md "Inventory Quick Reference" for step-by-step guides.
+# To change the build matrix, edit .matrix.yml and regenerate:
+#   python inventory/.generate_targets.py
+
 all:
   children:
-    ## Builders
-    # These groups are populated at runtime by aws_ec2.yml.
-    # The children separate the RHEL Image Builder builders from the Packer builders, so they get different tooling
-    # (see roles/builder_configure/).
+
+    # Builder groups (populated at runtime by aws_ec2.yml)
     builders:
       children:
-        # filled by aws_ec2.yml: builder_type=osbuild
-        osbuild_builders: {}
-        # filled by aws_ec2.yml: builder_type=packer
-        packer_builders: {}
+        builders_osbuild: {}
+        builders_packer: {}
 
-    ## Build Targets (phantom hosts)
-    # Each host appears in multiple groups across four dimensions.
-    # Example: "rhel-9.4-base" is in rhel9_targets, rhel_9_4, profile_base, AND method_osbuild.
-    # When a playbook runs against it, Ansible merges variables from all four group_vars.
-    # For this reason, do not remove any of the four dimensions.
-    #
-    # CROSS-DIMENSION VARIABLES: some variables sit at the intersection of two dimensions; they exist because of one
-    # (e.g., Packer), but their value is determined by another (e.g., the OS). Place them in the dimension that
-    # determines the value. See the inventory README file's "Where Do Variables Go?" section for the full decision
-    # framework, with examples.
+    # Build targets (phantom hosts)
     vm_targets:
       children:
-        # DIMENSION 1: OS family - the broad platform that shares a build template and tooling.
-        #
-        # Why the RHEL/Windows split patterns differ:
-        #   RHEL has minor releases (9.4, 9.6, 9.8) that are distinct base images, so "family" = major version (rhel8
-        #   vs. rhel9) and "version" (Dimension 2) = minor version. Each major version has its own blueprint template,
-        #   STIG datastream, and package ecosystem.
-        #
-        #   Windows Server has no minor releases, just LTSC versions (2022, 2025) plus monthly cumulative patches. There
-        #   is no "Server 2022.[0|1|2]" to choose between. So "family" = all Windows Server LTSC versions, and "version"
-        #   (Dimension 2) = the LTSC release year. STIG profiles differ per LTSC release, but those live in Dimension 2
-        #   (windows_2022.yml, windows_2025.yml) alongside other per-release settings.
-        #
-        # Put a var in this dimension's group_vars if: its value is determined by the OS platform and would  stay the
-        # same across all releases within the family. If a var exists because of another dimension (e.g., Packer) but
-        # its value is determined by the OS, it still belongs here. Example: packer_communicator is a Packer concept,
-        # but its value (winrm vs. ssh) is dictated by "it's Windows", so it lives in windows_targets.yml, not
-        # method_packer.yml.
-        #
-        # See the inventory README file's "Where Do Variables Go?" section for the full framework.
-        rhel8_targets:
+
+        # DIMENSION 1: OS family
+        rhel_targets:
           hosts:
-            rhel-8.10-base: {}
-            rhel-8.10-poc: {}
-        rhel9_targets:
+            rhel-8.10-appserver-aws: {}
+            rhel-8.10-appserver-azure: {}
+            rhel-8.10-appserver-gcp: {}
+            rhel-8.10-base-aws: {}
+            rhel-8.10-base-azure: {}
+            rhel-8.10-base-gcp: {}
+            rhel-8.10-database-aws: {}
+            rhel-8.10-database-azure: {}
+            rhel-8.10-database-gcp: {}
+            rhel-9.2-appserver-aws: {}
+            rhel-9.2-appserver-azure: {}
+            rhel-9.2-appserver-gcp: {}
+            rhel-9.2-base-aws: {}
+            rhel-9.2-base-azure: {}
+            rhel-9.2-base-gcp: {}
+            rhel-9.2-database-aws: {}
+            rhel-9.2-database-azure: {}
+            rhel-9.2-database-gcp: {}
+            rhel-9.4-appserver-aws: {}
+            rhel-9.4-appserver-azure: {}
+            rhel-9.4-appserver-gcp: {}
+            rhel-9.4-base-aws: {}
+            rhel-9.4-base-azure: {}
+            rhel-9.4-base-gcp: {}
+            rhel-9.4-database-aws: {}
+            rhel-9.4-database-azure: {}
+            rhel-9.4-database-gcp: {}
+            rhel-9.6-appserver-aws: {}
+            rhel-9.6-appserver-azure: {}
+            rhel-9.6-appserver-gcp: {}
+            rhel-9.6-base-aws: {}
+            rhel-9.6-base-azure: {}
+            rhel-9.6-base-gcp: {}
+            rhel-9.6-database-aws: {}
+            rhel-9.6-database-azure: {}
+            rhel-9.6-database-gcp: {}
+            rhel-9.8-appserver-aws: {}
+            rhel-9.8-appserver-azure: {}
+            rhel-9.8-appserver-gcp: {}
+            rhel-9.8-base-aws: {}
+            rhel-9.8-base-azure: {}
+            rhel-9.8-base-gcp: {}
+            rhel-9.8-database-aws: {}
+            rhel-9.8-database-azure: {}
+            rhel-9.8-database-gcp: {}
+        ubuntu_targets:
           hosts:
-            rhel-9.4-base: {}
-            rhel-9.4-poc: {}
-            rhel-9.6-base: {}
-            rhel-9.6-poc: {}
-            rhel-9.8-base: {}
-            rhel-9.8-poc: {}
+            ubuntu-22.04-base-aws: {}
+            ubuntu-22.04-base-azure: {}
+            ubuntu-22.04-base-gcp: {}
+            ubuntu-22.04-k8s-node-aws: {}
+            ubuntu-22.04-k8s-node-azure: {}
+            ubuntu-22.04-k8s-node-gcp: {}
+            ubuntu-24.04-base-aws: {}
+            ubuntu-24.04-base-azure: {}
+            ubuntu-24.04-base-gcp: {}
+            ubuntu-24.04-k8s-node-aws: {}
+            ubuntu-24.04-k8s-node-azure: {}
+            ubuntu-24.04-k8s-node-gcp: {}
+            ubuntu-26.04-base-aws: {}
+            ubuntu-26.04-base-azure: {}
+            ubuntu-26.04-base-gcp: {}
+            ubuntu-26.04-k8s-node-aws: {}
+            ubuntu-26.04-k8s-node-azure: {}
+            ubuntu-26.04-k8s-node-gcp: {}
         windows_targets:
           hosts:
-            windows-2022-base: {}
-            windows-2022-poc: {}
-            #windows-2025-base: {}
-            #windows-2025-poc: {}
+            windows-2022-base-aws: {}
+            windows-2022-base-azure: {}
+            windows-2022-base-gcp: {}
+            windows-2022-jumphost-aws: {}
+            windows-2022-jumphost-azure: {}
+            windows-2022-jumphost-gcp: {}
+            windows-2025-base-aws: {}
+            windows-2025-base-azure: {}
+            windows-2025-base-gcp: {}
+            windows-2025-jumphost-aws: {}
+            windows-2025-jumphost-azure: {}
+            windows-2025-jumphost-gcp: {}
 
-        # DIMENSION 2: OS version - the specific release within a family.
-        #
-        # For RHEL, this is the minor version (8.10, 9.2, 9.4, 9.6, etc.) since the major lives in Dimension 1.
-        #
-        # For Windows, this is the LTSC release year (2022, 2025), since Windows shares one family (per Dimension 1).
-        # Because Windows has no minor releases, settings that would be family-level for RHEL (like STIG profiles) land
-        # here for Windows; they differ per LTSC release, and this is the version axis.
-        #
-        # Put a var in this dimension's group_vars if: its value changes when you move from one release to another
-        # within the same family (e.g. 9.4 -> 9.6, or 2022 -> 2025).
+        # DIMENSION 2: OS version
         rhel_8_10:
           hosts:
-            rhel-8.10-base: {}
-            rhel-8.10-poc: {}
+            rhel-8.10-appserver-aws: {}
+            rhel-8.10-appserver-azure: {}
+            rhel-8.10-appserver-gcp: {}
+            rhel-8.10-base-aws: {}
+            rhel-8.10-base-azure: {}
+            rhel-8.10-base-gcp: {}
+            rhel-8.10-database-aws: {}
+            rhel-8.10-database-azure: {}
+            rhel-8.10-database-gcp: {}
+        rhel_9_2:
+          hosts:
+            rhel-9.2-appserver-aws: {}
+            rhel-9.2-appserver-azure: {}
+            rhel-9.2-appserver-gcp: {}
+            rhel-9.2-base-aws: {}
+            rhel-9.2-base-azure: {}
+            rhel-9.2-base-gcp: {}
+            rhel-9.2-database-aws: {}
+            rhel-9.2-database-azure: {}
+            rhel-9.2-database-gcp: {}
         rhel_9_4:
           hosts:
-            rhel-9.4-base: {}
-            rhel-9.4-poc: {}
+            rhel-9.4-appserver-aws: {}
+            rhel-9.4-appserver-azure: {}
+            rhel-9.4-appserver-gcp: {}
+            rhel-9.4-base-aws: {}
+            rhel-9.4-base-azure: {}
+            rhel-9.4-base-gcp: {}
+            rhel-9.4-database-aws: {}
+            rhel-9.4-database-azure: {}
+            rhel-9.4-database-gcp: {}
         rhel_9_6:
           hosts:
-            rhel-9.6-base: {}
-            rhel-9.6-poc: {}
+            rhel-9.6-appserver-aws: {}
+            rhel-9.6-appserver-azure: {}
+            rhel-9.6-appserver-gcp: {}
+            rhel-9.6-base-aws: {}
+            rhel-9.6-base-azure: {}
+            rhel-9.6-base-gcp: {}
+            rhel-9.6-database-aws: {}
+            rhel-9.6-database-azure: {}
+            rhel-9.6-database-gcp: {}
         rhel_9_8:
           hosts:
-            rhel-9.8-base: {}
-            rhel-9.8-poc: {}
+            rhel-9.8-appserver-aws: {}
+            rhel-9.8-appserver-azure: {}
+            rhel-9.8-appserver-gcp: {}
+            rhel-9.8-base-aws: {}
+            rhel-9.8-base-azure: {}
+            rhel-9.8-base-gcp: {}
+            rhel-9.8-database-aws: {}
+            rhel-9.8-database-azure: {}
+            rhel-9.8-database-gcp: {}
+        ubuntu_22_04:
+          hosts:
+            ubuntu-22.04-base-aws: {}
+            ubuntu-22.04-base-azure: {}
+            ubuntu-22.04-base-gcp: {}
+            ubuntu-22.04-k8s-node-aws: {}
+            ubuntu-22.04-k8s-node-azure: {}
+            ubuntu-22.04-k8s-node-gcp: {}
+        ubuntu_24_04:
+          hosts:
+            ubuntu-24.04-base-aws: {}
+            ubuntu-24.04-base-azure: {}
+            ubuntu-24.04-base-gcp: {}
+            ubuntu-24.04-k8s-node-aws: {}
+            ubuntu-24.04-k8s-node-azure: {}
+            ubuntu-24.04-k8s-node-gcp: {}
+        ubuntu_26_04:
+          hosts:
+            ubuntu-26.04-base-aws: {}
+            ubuntu-26.04-base-azure: {}
+            ubuntu-26.04-base-gcp: {}
+            ubuntu-26.04-k8s-node-aws: {}
+            ubuntu-26.04-k8s-node-azure: {}
+            ubuntu-26.04-k8s-node-gcp: {}
         windows_2022:
           hosts:
-            windows-2022-base: {}
-            windows-2022-poc: {}
-        #windows_2025:
-          #hosts:
-            #windows-2025-base: {}
-            #windows-2025-poc: {}
+            windows-2022-base-aws: {}
+            windows-2022-base-azure: {}
+            windows-2022-base-gcp: {}
+            windows-2022-jumphost-aws: {}
+            windows-2022-jumphost-azure: {}
+            windows-2022-jumphost-gcp: {}
+        windows_2025:
+          hosts:
+            windows-2025-base-aws: {}
+            windows-2025-base-azure: {}
+            windows-2025-base-gcp: {}
+            windows-2025-jumphost-aws: {}
+            windows-2025-jumphost-azure: {}
+            windows-2025-jumphost-gcp: {}
 
-        # DIMENSION 3: Profile - the workload variant (base, poc, etc.).
-        #
-        # Profiles use composition: common config lives in group_vars/all_profiles.yml (_base_* vars), and each profile
-        # adds its own extras via _profile_specific_* vars. The final profile_* variables consumed by roles
-        # are Jinja expressions in all_profiles.yml that concatenate both layers automatically.
-        #
-        # Put a var in this dimension's group_vars if: it defines what the profile means for a build, regardless of
-        # OS or build tool. Profile files use OS-family prefixes (*_linux_*, *_windows_*) so a single file can carry
-        # values for all families. See all_profiles.yml's scalability note for when/how to split further.
+        # DIMENSION 3: Profile
         all_profiles:
           children:
+            profile_appserver:
+              hosts:
+                rhel-8.10-appserver-aws: {}
+                rhel-8.10-appserver-azure: {}
+                rhel-8.10-appserver-gcp: {}
+                rhel-9.2-appserver-aws: {}
+                rhel-9.2-appserver-azure: {}
+                rhel-9.2-appserver-gcp: {}
+                rhel-9.4-appserver-aws: {}
+                rhel-9.4-appserver-azure: {}
+                rhel-9.4-appserver-gcp: {}
+                rhel-9.6-appserver-aws: {}
+                rhel-9.6-appserver-azure: {}
+                rhel-9.6-appserver-gcp: {}
+                rhel-9.8-appserver-aws: {}
+                rhel-9.8-appserver-azure: {}
+                rhel-9.8-appserver-gcp: {}
             profile_base:
               hosts:
-                rhel-8.10-base: {}
-                rhel-9.4-base: {}
-                rhel-9.6-base: {}
-                rhel-9.8-base: {}
-                windows-2022-base: {}
-                #windows-2025-base: {}
-            profile_poc:
+                rhel-8.10-base-aws: {}
+                rhel-8.10-base-azure: {}
+                rhel-8.10-base-gcp: {}
+                rhel-9.2-base-aws: {}
+                rhel-9.2-base-azure: {}
+                rhel-9.2-base-gcp: {}
+                rhel-9.4-base-aws: {}
+                rhel-9.4-base-azure: {}
+                rhel-9.4-base-gcp: {}
+                rhel-9.6-base-aws: {}
+                rhel-9.6-base-azure: {}
+                rhel-9.6-base-gcp: {}
+                rhel-9.8-base-aws: {}
+                rhel-9.8-base-azure: {}
+                rhel-9.8-base-gcp: {}
+                ubuntu-22.04-base-aws: {}
+                ubuntu-22.04-base-azure: {}
+                ubuntu-22.04-base-gcp: {}
+                ubuntu-24.04-base-aws: {}
+                ubuntu-24.04-base-azure: {}
+                ubuntu-24.04-base-gcp: {}
+                ubuntu-26.04-base-aws: {}
+                ubuntu-26.04-base-azure: {}
+                ubuntu-26.04-base-gcp: {}
+                windows-2022-base-aws: {}
+                windows-2022-base-azure: {}
+                windows-2022-base-gcp: {}
+                windows-2025-base-aws: {}
+                windows-2025-base-azure: {}
+                windows-2025-base-gcp: {}
+            profile_database:
               hosts:
-                rhel-8.10-poc: {}
-                rhel-9.4-poc: {}
-                rhel-9.6-poc: {}
-                rhel-9.8-poc: {}
-                windows-2022-poc: {}
-                #windows-2025-poc: {}
+                rhel-8.10-database-aws: {}
+                rhel-8.10-database-azure: {}
+                rhel-8.10-database-gcp: {}
+                rhel-9.2-database-aws: {}
+                rhel-9.2-database-azure: {}
+                rhel-9.2-database-gcp: {}
+                rhel-9.4-database-aws: {}
+                rhel-9.4-database-azure: {}
+                rhel-9.4-database-gcp: {}
+                rhel-9.6-database-aws: {}
+                rhel-9.6-database-azure: {}
+                rhel-9.6-database-gcp: {}
+                rhel-9.8-database-aws: {}
+                rhel-9.8-database-azure: {}
+                rhel-9.8-database-gcp: {}
+            profile_jumphost:
+              hosts:
+                windows-2022-jumphost-aws: {}
+                windows-2022-jumphost-azure: {}
+                windows-2022-jumphost-gcp: {}
+                windows-2025-jumphost-aws: {}
+                windows-2025-jumphost-azure: {}
+                windows-2025-jumphost-gcp: {}
+            profile_k8s_node:
+              hosts:
+                ubuntu-22.04-k8s-node-aws: {}
+                ubuntu-22.04-k8s-node-azure: {}
+                ubuntu-22.04-k8s-node-gcp: {}
+                ubuntu-24.04-k8s-node-aws: {}
+                ubuntu-24.04-k8s-node-azure: {}
+                ubuntu-24.04-k8s-node-gcp: {}
+                ubuntu-26.04-k8s-node-aws: {}
+                ubuntu-26.04-k8s-node-azure: {}
+                ubuntu-26.04-k8s-node-gcp: {}
 
-        # DIMENSION 4: Build method - the tool used to produce the image.
-        #
-        # Put a var in this dimension's group_vars if: it is about the build tool itself and would apply
-        # regardless of which OS you build. If a setting is Packer-specific but its value depends on the OS
-        # (e.g. communicator protocol, admin username), it belongs in the OS dimension, not here.
-        # See README "Where Do Variables Go?" for the full framework.
-        #
-        # This is also the critical routing dimension. It determines WHICH TYPE of builder a target's work gets
-        # delegated to.
-        #
-        # group_vars/method_osbuild.yml sets:
-        #   builder_group: osbuild_builders
-        # group_vars/method_packer.yml sets:
-        #   builder_group: packer_builders
-        #
-        # The build roles (rhel_image_build, windows_image_build) assign _builder_host once per phantom host using
-        # round-robin across the builder group. All downstream roles in the play inherit that fact, so every step for a
-        # given target delegates to the same builder. See rhel_image_build/tasks/main.yml for the round-robin logic.
-        #
-        # build_rhel.yml targets "hosts: method_osbuild"
-        # build_windows.yml targets "hosts: method_packer"
+        # DIMENSION 4: Build method
         method_osbuild:
           hosts:
-            rhel-8.10-base: {}
-            rhel-8.10-poc: {}
-            rhel-9.4-base: {}
-            rhel-9.4-poc: {}
-            rhel-9.6-base: {}
-            rhel-9.6-poc: {}
-            rhel-9.8-base: {}
-            rhel-9.8-poc: {}
+            rhel-8.10-appserver-aws: {}
+            rhel-8.10-appserver-azure: {}
+            rhel-8.10-appserver-gcp: {}
+            rhel-8.10-base-aws: {}
+            rhel-8.10-base-azure: {}
+            rhel-8.10-base-gcp: {}
+            rhel-8.10-database-aws: {}
+            rhel-8.10-database-azure: {}
+            rhel-8.10-database-gcp: {}
+            rhel-9.2-appserver-aws: {}
+            rhel-9.2-appserver-azure: {}
+            rhel-9.2-appserver-gcp: {}
+            rhel-9.2-base-aws: {}
+            rhel-9.2-base-azure: {}
+            rhel-9.2-base-gcp: {}
+            rhel-9.2-database-aws: {}
+            rhel-9.2-database-azure: {}
+            rhel-9.2-database-gcp: {}
+            rhel-9.4-appserver-aws: {}
+            rhel-9.4-appserver-azure: {}
+            rhel-9.4-appserver-gcp: {}
+            rhel-9.4-base-aws: {}
+            rhel-9.4-base-azure: {}
+            rhel-9.4-base-gcp: {}
+            rhel-9.4-database-aws: {}
+            rhel-9.4-database-azure: {}
+            rhel-9.4-database-gcp: {}
+            rhel-9.6-appserver-aws: {}
+            rhel-9.6-appserver-azure: {}
+            rhel-9.6-appserver-gcp: {}
+            rhel-9.6-base-aws: {}
+            rhel-9.6-base-azure: {}
+            rhel-9.6-base-gcp: {}
+            rhel-9.6-database-aws: {}
+            rhel-9.6-database-azure: {}
+            rhel-9.6-database-gcp: {}
+            rhel-9.8-appserver-aws: {}
+            rhel-9.8-appserver-azure: {}
+            rhel-9.8-appserver-gcp: {}
+            rhel-9.8-base-aws: {}
+            rhel-9.8-base-azure: {}
+            rhel-9.8-base-gcp: {}
+            rhel-9.8-database-aws: {}
+            rhel-9.8-database-azure: {}
+            rhel-9.8-database-gcp: {}
         method_packer:
           hosts:
-            windows-2022-base: {}
-            windows-2022-poc: {}
-            #windows-2025-base: {}
-            #windows-2025-poc: {}
+            ubuntu-22.04-base-aws: {}
+            ubuntu-22.04-base-azure: {}
+            ubuntu-22.04-base-gcp: {}
+            ubuntu-22.04-k8s-node-aws: {}
+            ubuntu-22.04-k8s-node-azure: {}
+            ubuntu-22.04-k8s-node-gcp: {}
+            ubuntu-24.04-base-aws: {}
+            ubuntu-24.04-base-azure: {}
+            ubuntu-24.04-base-gcp: {}
+            ubuntu-24.04-k8s-node-aws: {}
+            ubuntu-24.04-k8s-node-azure: {}
+            ubuntu-24.04-k8s-node-gcp: {}
+            ubuntu-26.04-base-aws: {}
+            ubuntu-26.04-base-azure: {}
+            ubuntu-26.04-base-gcp: {}
+            ubuntu-26.04-k8s-node-aws: {}
+            ubuntu-26.04-k8s-node-azure: {}
+            ubuntu-26.04-k8s-node-gcp: {}
+            windows-2022-base-aws: {}
+            windows-2022-base-azure: {}
+            windows-2022-base-gcp: {}
+            windows-2022-jumphost-aws: {}
+            windows-2022-jumphost-azure: {}
+            windows-2022-jumphost-gcp: {}
+            windows-2025-base-aws: {}
+            windows-2025-base-azure: {}
+            windows-2025-base-gcp: {}
+            windows-2025-jumphost-aws: {}
+            windows-2025-jumphost-azure: {}
+            windows-2025-jumphost-gcp: {}
+
+        # DIMENSION 5: Cloud provider
+        cloud_aws:
+          hosts:
+            rhel-8.10-appserver-aws: {}
+            rhel-8.10-base-aws: {}
+            rhel-8.10-database-aws: {}
+            rhel-9.2-appserver-aws: {}
+            rhel-9.2-base-aws: {}
+            rhel-9.2-database-aws: {}
+            rhel-9.4-appserver-aws: {}
+            rhel-9.4-base-aws: {}
+            rhel-9.4-database-aws: {}
+            rhel-9.6-appserver-aws: {}
+            rhel-9.6-base-aws: {}
+            rhel-9.6-database-aws: {}
+            rhel-9.8-appserver-aws: {}
+            rhel-9.8-base-aws: {}
+            rhel-9.8-database-aws: {}
+            ubuntu-22.04-base-aws: {}
+            ubuntu-22.04-k8s-node-aws: {}
+            ubuntu-24.04-base-aws: {}
+            ubuntu-24.04-k8s-node-aws: {}
+            ubuntu-26.04-base-aws: {}
+            ubuntu-26.04-k8s-node-aws: {}
+            windows-2022-base-aws: {}
+            windows-2022-jumphost-aws: {}
+            windows-2025-base-aws: {}
+            windows-2025-jumphost-aws: {}
+        cloud_azure:
+          hosts:
+            rhel-8.10-appserver-azure: {}
+            rhel-8.10-base-azure: {}
+            rhel-8.10-database-azure: {}
+            rhel-9.2-appserver-azure: {}
+            rhel-9.2-base-azure: {}
+            rhel-9.2-database-azure: {}
+            rhel-9.4-appserver-azure: {}
+            rhel-9.4-base-azure: {}
+            rhel-9.4-database-azure: {}
+            rhel-9.6-appserver-azure: {}
+            rhel-9.6-base-azure: {}
+            rhel-9.6-database-azure: {}
+            rhel-9.8-appserver-azure: {}
+            rhel-9.8-base-azure: {}
+            rhel-9.8-database-azure: {}
+            ubuntu-22.04-base-azure: {}
+            ubuntu-22.04-k8s-node-azure: {}
+            ubuntu-24.04-base-azure: {}
+            ubuntu-24.04-k8s-node-azure: {}
+            ubuntu-26.04-base-azure: {}
+            ubuntu-26.04-k8s-node-azure: {}
+            windows-2022-base-azure: {}
+            windows-2022-jumphost-azure: {}
+            windows-2025-base-azure: {}
+            windows-2025-jumphost-azure: {}
+        cloud_gcp:
+          hosts:
+            rhel-8.10-appserver-gcp: {}
+            rhel-8.10-base-gcp: {}
+            rhel-8.10-database-gcp: {}
+            rhel-9.2-appserver-gcp: {}
+            rhel-9.2-base-gcp: {}
+            rhel-9.2-database-gcp: {}
+            rhel-9.4-appserver-gcp: {}
+            rhel-9.4-base-gcp: {}
+            rhel-9.4-database-gcp: {}
+            rhel-9.6-appserver-gcp: {}
+            rhel-9.6-base-gcp: {}
+            rhel-9.6-database-gcp: {}
+            rhel-9.8-appserver-gcp: {}
+            rhel-9.8-base-gcp: {}
+            rhel-9.8-database-gcp: {}
+            ubuntu-22.04-base-gcp: {}
+            ubuntu-22.04-k8s-node-gcp: {}
+            ubuntu-24.04-base-gcp: {}
+            ubuntu-24.04-k8s-node-gcp: {}
+            ubuntu-26.04-base-gcp: {}
+            ubuntu-26.04-k8s-node-gcp: {}
+            windows-2022-base-gcp: {}
+            windows-2022-jumphost-gcp: {}
+            windows-2025-base-gcp: {}
+            windows-2025-jumphost-gcp: {}

@@ -1,10 +1,9 @@
 ---
-# Azure distribution: publish to Azure Compute Gallery and share across subscriptions.
-# Requires azure.azcollection modules and Azure Service Principal credentials.
-
-- name: Distribute to Azure (placeholder)
-  ansible.builtin.debug:
+# TODO: Verify the native image approval metadata matches _published_image.build_id before copying or sharing.
+# TODO: Publish the approved native image/version to Azure Compute Gallery and share across target subscriptions.
+# TODO: Use Azure credentials and the azure.azcollection collection; preserve the common publication-record gate.
+- name: Stop until Azure image distribution is implemented
+  ansible.builtin.fail:
     msg: >-
-      TODO: Publish {{ vm_name }} to Azure Compute Gallery
-      and share across target subscriptions.
-      Requires: azure.azcollection collection, Azure Service Principal in Vault.
+      TODO: Implement Azure native approval verification and image distribution.
+      No Azure image copies or sharing permissions have been created.

@@ -1,0 +1,13 @@
+---
+# Shared builder paths (inventory/group_vars/all.yml).
+builder_work_dir: /var/lib/image-builder
+image_output_dir: "{{ builder_work_dir }}/output"
+report_output_dir: "{{ builder_work_dir }}/reports"
+
+# Mirror the producer's metadata defaults; inventory/caller overrides take precedence.
+image_version_suffix: ""
+image_version: "{{ now(utc=true).strftime('%Y.%m.%d') }}{{ image_version_suffix }}"
+stig_profile: "xccdf_org.ssgproject.content_profile_stig"
+
+# Required from the current build: _builder_host, build_timestamp, prepared_qcow2_sha256,
+# cloud_image_result, image_validation_result, and OS/method/profile/cloud provenance.

@@ -1,8 +1,8 @@
 ---
 # Connection settings for builder EC2 instances.
 #
-# Applies to all hosts in the "builders" group (both osbuild_builders
-# and packer_builders), since both are children of "builders" in
+# Applies to all hosts in the "builders" group (both builders_osbuild
+# and builders_packer), since both are children of "builders" in
 # targets.yml.
 #
 # These are the REAL EC2 instances (not phantom hosts). They're

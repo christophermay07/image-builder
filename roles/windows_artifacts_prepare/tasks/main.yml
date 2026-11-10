@@ -1,0 +1,28 @@
+---
+# Select evidence produced by this Windows build; the shared uploader has no OS-specific report logic.
+- name: Set artifact target name
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Generate build metadata
+  ansible.builtin.template:
+    src: build-metadata.json.j2
+    dest: "{{ report_output_dir }}/{{ vm_name }}/build-metadata.json"
+    mode: "0644"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Select Windows build artifacts for upload
+  ansible.builtin.set_fact:
+    artifactory_upload_artifacts:
+      - src: "{{ report_output_dir }}/{{ vm_name }}/pre-seal-stig-results.json"
+        name: pre-seal-stig-results.json
+      - src: "{{ report_output_dir }}/{{ vm_name }}/pre-seal-stig-report.html"
+        name: pre-seal-stig-report.html
+      - src: "{{ report_output_dir }}/{{ vm_name }}/post-seal-stig-results.json"
+        name: post-seal-stig-results.json
+      - src: "{{ report_output_dir }}/{{ vm_name }}/post-seal-stig-report.html"
+        name: post-seal-stig-report.html
+      - src: "{{ report_output_dir }}/{{ vm_name }}/fips-verify.json"
+        name: fips-verify.json
+      - src: "{{ report_output_dir }}/{{ vm_name }}/build-metadata.json"
+        name: build-metadata.json

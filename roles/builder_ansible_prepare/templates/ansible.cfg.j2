@@ -1,0 +1,8 @@
+[defaults]
+roles_path = {{ builder_ansible_workspace }}/roles
+collections_path = {{ builder_ansible_workspace }}/collections
+collections_scan_sys_path = False
+local_tmp = {{ builder_ansible_workspace }}/tmp
+retry_files_enabled = False
+[privilege_escalation]
+become = False

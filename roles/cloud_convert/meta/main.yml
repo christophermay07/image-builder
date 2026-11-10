@@ -1,6 +1,6 @@
 ---
 galaxy_info:
-  author: "the client"
+  author: ""
   license: ""
   role_name: cloud_convert
   description: "Convert qcow2 to cloud-native formats (AMI, VHD, GCP image)"

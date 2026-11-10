@@ -9,7 +9,7 @@
 #        ansible_play_hosts_all.index(inventory_hostname)
 #        % (groups[builder_group] | length)] }}
 #
-# Since build_method = "osbuild", builder_group resolves to "osbuild_builders", picking from the EC2 instances
+# Since build_method = "osbuild", builder_group resolves to "builders_osbuild", picking from the EC2 instances
 # discovered by aws_ec2.yml (tagged builder_type=osbuild). With a single builder this reduces to [0]. With multiple
 # builders, targets are spread evenly. The assigned _builder_host persists as a host fact for the entire play, so all
 # downstream roles (hardening, export, convert, etc.) delegate to the same builder that did the compose.
@@ -18,10 +18,5 @@ build_method: osbuild
 # Blueprint directory on the builder host (builder_work_dir is defined in all.yml)
 blueprint_dir: "{{ builder_work_dir }}/blueprints"
 
-# cloud-init datasources for multi-cloud support
-# Used in blueprint templates via [customizations.files].
-cloud_init_datasources:
-  - Ec2
-  - Azure
-  - GCE
-  - NoCloud
+# cloud-init datasources are set per cloud provider in cloud_*.yml.
+# Each cloud group_vars file lists its own datasource + NoCloud as a fallback.

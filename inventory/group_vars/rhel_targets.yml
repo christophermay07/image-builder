@@ -1,0 +1,29 @@
+---
+# RHEL family settings (shared across all RHEL major and minor versions)
+os_family: rhel
+
+# Major version derived from os_version (set in each version's group_vars). Used by stig_datastream below and available
+# to roles that need it (e.g. rhel8_fstab_fixup gates on os_version, but os_major is handy for labels, conditionals,
+# and possible future RHEL-10-only logic).
+os_major: "{{ os_version.split('.')[0] }}"
+
+# STIG profile ID for OpenSCAP compliance scanning. Every major version since RHEL 6 has used this profile ID; only the
+# datastream file differs.
+stig_profile: "xccdf_org.ssgproject.content_profile_stig"
+
+# STIG datastream file, derived from os_major. Follows the scap-security-guide naming convention.
+stig_datastream: "ssg-rhel{{ os_major }}-ds.xml"
+
+# Blueprint template (shared across RHEL major versions)
+blueprint_template: "rhel-blueprint.toml.j2"
+
+## Shared yum repo settings
+#
+# These variables are referenced via Jinja inside repo entries defined in all_profiles/linux.yml (the _base_* and
+# _profile_specific_* composition layer). Centralizing them here means every repo entry uses the same mirror and GPG
+# key by default, and a single change propagates everywhere.
+#
+# The actual repo lists (build_yum_sources, blueprint_yum_repos) are composed in all_profiles/linux.yml using the
+# standard _base + _profile_specific + _cloud pattern. Per-profile additions go in profile_*.yml.
+yum_repo_base_url: "repo.example.com"  # TODO: set actual mirror hostname/path
+yum_repo_gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-redhat-release"

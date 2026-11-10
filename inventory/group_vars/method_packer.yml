@@ -1,8 +1,8 @@
 ---
 # Variables for phantom hosts in the "method_packer" group (all Windows targets; see targets.yml dimension 4).
 #
-# build_method drives builder_group (derived in all.yml as "{{ build_method }}_builders"), which points at
-# packer_builders. windows_image_build assigns _builder_host once per phantom host via round-robin across that group.
+# build_method drives builder_group (derived in all.yml as "builders_{{ build_method }}"), which points at
+# builders_packer. windows_image_build assigns _builder_host once per phantom host via round-robin across that group.
 # See method_osbuild.yml for the full explanation.
 build_method: packer
 

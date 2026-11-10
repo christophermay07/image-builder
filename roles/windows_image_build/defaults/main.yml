@@ -13,15 +13,40 @@ packer_log_dir: "{{ builder_work_dir }}/logs"
 # Mapping of the injected secret. The real credential (winrm_admin_password) is injected by AAP/vault at runtime.
 packer_winrm_password: "{{ winrm_admin_password }}"
 
+# Provider rule toggles forwarded to the inner Ansible run. Bare outer provider variables are not forwarded.
+# Boolean wnYY_XX_NNNNNN toggles are accepted; YY is the two-digit Windows version (e.g., 22 or 25).
+windows_stig_overrides: {}
+
+## Cross-role, scan output (not in group_vars)
+# Mirrors windows_compliance_scan defaults so the outer run can serialize settings before invoking the inner role.
+# Guest result paths must also match the Packer file provisioner's download source.
+compliance_output_dir: 'C:\compliance-results'
+compliance_generate_html: true
+
+## Cross-role, Windows profiles (defined in group_vars/all_profiles/windows.yml)
+# Composed from base and profile-specific values; consumed by windows_hardening in the inner run.
+profile_windows_extra_features: []
+profile_windows_registry_entries: {}
+
+## Cross-role, Windows targets (defined in group_vars/windows_targets.yml)
+# Shared with pre-seal scanning and post-AMI validation; serialized into the scan payload.
+powerstig_version: "4.30.0"
+powerstig_manifest_hash: ""
+nuget_provider_version: "2.8.5.201"
+
 ## Cross-role, all hosts (defined in group_vars/all.yml)
-# Shared settings used by multiple roles.
+# Shared paths used by multiple roles.
 
 builder_work_dir: /var/lib/image-builder
+report_output_dir: "{{ builder_work_dir }}/reports"
+
+## AWS settings (defined in group_vars/cloud_aws.yml)
 aws_region: us-east-1
 
-## AWS credentials (build function)
-# Packer picks these up via environment variables. Uses the build-scoped credential variables from
-# group_vars/all.yml. To split from distribute/cleanup, override the aws_build_* vars.
+## AWS credentials (build function, defined in group_vars/cloud_aws.yml)
+# These AWS operations execute on the assigned builder, not in the outer job runner.
+# Packer picks these up via environment variables. Uses the build-scoped credential variables from cloud_aws.yml. To
+# split from distribute/cleanup, override the aws_build_* vars.
 aws_build_access_key_id: ""
 aws_build_secret_access_key: ""
 aws_build_session_token: ""
@@ -32,24 +57,40 @@ aws_build_session_token: ""
 packer_binary: /usr/local/bin/packer
 
 ## Role-specific, packer method (defined in group_vars/method_packer.yml)
-# Packer template directory; only used by this role.
+# Existing configured fallback; tasks replace it with the allocated private workspace before rendering.
 
 packer_template_dir: "{{ builder_work_dir }}/packer"
 
 ## Role-specific, Windows targets (defined in group_vars/windows_targets.yml)
-# Instance sizing and WinRM settings; only used by this role.
+# Instance sizing and connection settings; only used by this role.
 
 packer_instance_type: "m5.xlarge"
+packer_communicator: "winrm"
 packer_winrm_username: "Administrator"
 
-## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
-# These *must* be provided by the inventory (or set by earlier roles).
-# The role fails with an UndefinedError if they are missing.
+## Role-specific, Packer builders (defined in group_vars/builders_packer.yml)
+# Exact Packer plugin versions. packer init verifies plugin integrity via GPG
+# signature over SHA-256 checksums; only the version pin is needed here.
+packer_plugin_amazon_version: "1.8.3"
+packer_plugin_ansible_version: "1.1.6"
+
+## REQUIRED FROM INVENTORY (no sensible default)
+# These *must* be provided by the inventory.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
 #
-# winrm_admin_password   - injected via extra-vars or vault
-# source_ami            - per-OS-version, cross-role    (windows_*.yml)        e.g. "ami-0123456789abcdef0"
-# os_family             - per-OS-family, cross-role     (windows_targets.yml)  e.g. "windows"
-# os_version            - per-OS-version, cross-role    (windows_*.yml)        e.g. "2022"
-# profile               - per-profile, cross-role       (profile_*.yml)        e.g. "base"
-# builder_group         - cross-role, derived           (all.yml)              e.g. "builders"
-# report_output_dir     - cross-role                    (all.yml)              e.g. "/var/lib/image-builder/reports"
+# winrm_admin_password - injected via extra-vars or vault
+# source_ami           - per-OS-version, cross-role    (windows_*.yml)          e.g., "ami-0123456789abcdef0"
+# os_family            - per-OS-family, cross-role     (windows_targets.yml)    e.g., "windows"
+# os_version           - per-OS-version, cross-role    (windows_*.yml)          e.g., "2022"
+# profile              - per-profile, cross-role       (profile_*.yml)          e.g., "base"
+# builder_group        - cross-role, derived           (all.yml)                e.g., "builders_packer"
+# windows_stig_role    - per-OS-version, cross-role    (windows_*.yml)          e.g., "win2022stig"
+# powerstig_stig_id    - per-OS-version, cross-role    (windows_*.yml)          e.g., "WindowsServer-2022-MS"
+# ami_base_tags        - cross-role, all hosts (all.yml); tag mapping rendered into the Packer source
+# build_timestamp      - cross-role, all hosts (all.yml); shared timestamp used by ami_base_tags
+# builder_pip_packages - assigned builder input (builders_packer.yml); e.g., [pywinrm==0.5.0]
+#   * read builder_pip_packages through hostvars[_builder_host], rather than the phantom target's variables.
+
+## Publication context (from image_build_initialize and the producer)
+# image_build_id - Unique attempt identity from image_build_initialize initialization.

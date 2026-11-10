@@ -4,16 +4,26 @@
 # Every variable the role consumes is listed here so the role is self-documenting.
 # Sections describe where the authoritative definition lives in this project's inventory.
 #
-# This role runs inside the Packer guest (not on the builder host).
+# Ansible reads this role on the builder; its Windows modules execute on the guest over WinRM.
 
 ## Cross-role, Windows targets (defined in group_vars/windows_targets.yml)
-# Also used by windows_ami_validate and windows_hardening.
+# Module settings are shared with windows_ami_validate; the required checklist is selected per Windows version.
 
 # PowerSTIG module version to install for compliance auditing.
 powerstig_version: "4.30.0"
 
-# STIG checklist ID used by PowerSTIG.
-powerstig_stig_id: "WindowsServer-2022-MS"
+# SHA-256 hash of the PowerSTIG module manifest (PowerSTIG.psd1) for
+# post-install integrity verification. Obtain this from a trusted Windows
+# install:
+#   $mod = Get-Module -ListAvailable -Name PowerSTIG |
+#          Where-Object { $_.Version -eq '4.30.0' }
+#   (Get-FileHash (Join-Path $mod.ModuleBase 'PowerSTIG.psd1') -Algorithm SHA256).Hash
+#
+# Leave empty to skip verification (e.g., before the first Windows build).
+powerstig_manifest_hash: ""
+
+# NuGet package provider version installed before PowerSTIG.
+nuget_provider_version: "2.8.5.201"
 
 ## Role-only (not in group_vars)
 # Guest-internal paths and minor toggles; not operator-facing.
@@ -23,3 +33,11 @@ compliance_output_dir: 'C:\compliance-results'
 
 # Toggle HTML summary report generation. Fine as a default; override via extra-vars if needed.
 compliance_generate_html: true
+
+## REQUIRED FROM INVENTORY OR CALLER (no sensible default)
+# These *must* be provided by the inventory or caller.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
+#
+# powerstig_stig_id - per-OS-version, cross-role (group_vars/windows_*.yml)
+# The outer build forwards this selection; standalone callers must supply it explicitly.

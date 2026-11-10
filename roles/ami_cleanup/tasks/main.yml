@@ -1,6 +1,7 @@
 ---
 # Clean up old AMIs and their backing EBS snapshots.
-# Dispatches to provider-specific task files based on cloud_targets (same pattern as cloud_convert / image_distribute).
+# Dispatches to provider-specific task files based on cloud group membership
+# (same pattern as cloud_convert / image_distribute).
 
 - name: Set VM name from inventory hostname
   ansible.builtin.set_fact:
@@ -8,4 +9,4 @@
 
 - name: Clean up AWS AMIs and snapshots
   ansible.builtin.include_tasks: cleanup_aws.yml
-  when: "'aws' in cloud_targets"
+  when: "'cloud_aws' in group_names"

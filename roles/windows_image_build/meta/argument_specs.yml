@@ -1,0 +1,155 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for windows_image_build
+    options:
+      # Injected secrets
+      packer_winrm_password:
+        type: str
+        description: Effective guest administrator password; defaults to the injected WinRM secret.
+        required: true
+        no_log: true
+      winrm_admin_password:
+        type: str
+        description: Injected secret used by the default Packer WinRM password alias.
+        no_log: true
+      aws_build_access_key_id:
+        type: str
+        description: Optional explicit AWS access key ID for build operations.
+        no_log: true
+      aws_build_secret_access_key:
+        type: str
+        description: Optional explicit AWS secret access key for build operations.
+        no_log: true
+      aws_build_session_token:
+        type: str
+        description: Optional explicit AWS session token for build operations.
+        no_log: true
+
+      # Inherited and derived values
+      builder_group:
+        type: str
+        description: Inventory group used to select a builder (e.g., builders_packer, builders_osbuild).
+        required: true
+      image_build_id:
+        type: str
+        description: Unique attempt identity from image_build_initialize initialization.
+        required: true
+      _builder_host:
+        type: str
+        description: Assigned builder hostname; normally selected from builder_group.
+      builder_ansible_workspace:
+        type: str
+        description: Private workspace normally allocated by builder_ansible_prepare.
+      builder_ansible_bin:
+        type: str
+        description: Executable directory normally derived from the private workspace.
+      builder_ansible_environment:
+        type: dict
+        description: Environment normally derived from the private workspace.
+      build_timestamp:
+        type: str
+        description: Shared build timestamp used for artifact paths and release versioning.
+      vm_name:
+        type: str
+        description: Image target name; normally derived from inventory_hostname.
+
+      # Build target identity
+      os_version:
+        type: str
+        description: Operating system release selected by the target inventory.
+        required: true
+      profile:
+        type: str
+        description: Inventory profile selecting image packages, services, and customization.
+        required: true
+      os_family:
+        type: str
+        description: Operating system family selected by the target inventory.
+
+      # Packer
+      packer_binary:
+        type: str
+        description: Path to the Packer executable on the builder.
+      packer_instance_type:
+        type: str
+        description: Instance type for the temporary Packer build guest.
+      packer_plugin_amazon_version:
+        type: str
+        description: Pinned version of the Packer Amazon builder plugin.
+      packer_plugin_ansible_version:
+        type: str
+        description: Pinned version of the Packer Ansible provisioner plugin.
+      packer_communicator:
+        type: str
+        description: Packer connection transport; this role supports WinRM only.
+        choices:
+          - winrm
+      packer_winrm_username:
+        type: str
+        description: Guest administrator username used by the Packer WinRM communicator.
+      packer_template_dir:
+        type: str
+        description: Packer template directory; normally replaced with the private build workspace.
+      packer_log_dir:
+        type: str
+        description: Builder directory containing Packer initialization and build logs.
+
+      # Working and output directories
+      builder_work_dir:
+        type: str
+        description: Base directory for builder workspaces and artifacts.
+      report_output_dir:
+        type: str
+        description: Builder directory containing compliance reports and build metadata.
+
+      # STIG and compliance
+      windows_stig_role:
+        type: str
+        description: Version-specific Ansible role used to apply Windows STIG remediation.
+        required: true
+      powerstig_stig_id:
+        type: str
+        description: Version-specific STIG checklist used by PowerSTIG for compliance scanning.
+        required: true
+      windows_stig_overrides:
+        type: dict
+        description: Mapping of provider rule toggles to native boolean values.
+      powerstig_version:
+        type: str
+        description: PowerSTIG module version to install for compliance scanning.
+      powerstig_manifest_hash:
+        type: str
+        description: Expected module manifest SHA-256; empty skips verification.
+      nuget_provider_version:
+        type: str
+        description: NuGet package provider version required to install PowerSTIG.
+      compliance_generate_html:
+        type: bool
+        description: Generate an HTML compliance report alongside the structured scan results.
+      compliance_output_dir:
+        type: str
+        description: Directory inside the Windows guest containing compliance scan results.
+
+      # Windows customization
+      profile_windows_extra_features:
+        type: list
+        description: Additional Windows features to install for the selected profile.
+        elements: str
+      profile_windows_registry_entries:
+        type: dict
+        description: Mapping of named registry entries with path, name, and data fields.
+
+      # AWS settings
+      source_ami:
+        type: str
+        description: Source AMI used as the base for the image build.
+        required: true
+      ami_base_tags:
+        type: dict
+        description: Tag mapping applied to images created or copied by the pipeline.
+        required: true
+      aws_region:
+        type: str
+        description: AWS region where the role performs its source image operations.

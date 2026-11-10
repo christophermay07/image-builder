@@ -1,0 +1,47 @@
+---
+# Prepare the canonical disk before deriving cloud images or publishing it.
+- name: Validate preparation workspace
+  ansible.builtin.assert:
+    that:
+      - _builder_host is string
+      - _builder_host | trim | length > 0
+      - image_output_dir is string
+      - image_output_dir | trim | length > 0
+    fail_msg: Supply the assigned builder and image output directory before preparing the qcow2.
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Compress qcow2 image
+  ansible.builtin.command:
+    argv:
+      - qemu-img
+      - convert
+      - -c
+      - -O
+      - qcow2
+      - "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+      - "{{ image_output_dir }}/{{ vm_name }}-compressed.qcow2"
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Replace original with compressed image
+  ansible.builtin.command:
+    argv:
+      - mv
+      - "{{ image_output_dir }}/{{ vm_name }}-compressed.qcow2"
+      - "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Checksum prepared qcow2
+  ansible.builtin.stat:
+    path: "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+    checksum_algorithm: sha256
+  register: _prepared_image
+  delegate_to: "{{ _builder_host }}"
+
+- name: Record prepared image checksum
+  ansible.builtin.set_fact:
+    prepared_qcow2_sha256: "{{ _prepared_image.stat.checksum }}"

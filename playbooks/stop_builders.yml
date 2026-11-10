@@ -4,7 +4,7 @@
 # Like start_builders.yml, runs entirely on localhost (connection: local). No SSH just AWS API calls to stop the
 # instances.
 #
-# In the AAP workflow, this is wired as an always_nodes target from the Distribute step, which waits for both build
+# In the AAP workflow, this is wired as an always_nodes target from the Distribute step, which waits for all build
 # branches to finish. So builders are stopped regardless of whether builds succeed or fail, and only after all
 # in-progress work completes.
 #
@@ -18,7 +18,7 @@
   tasks:
     - name: Find running builder instances by tag
       amazon.aws.ec2_instance_info:
-        region: "{{ aws_region }}"
+        region: "{{ aws_builder_region }}"
         filters: "{{ builder_instance_tags | combine({'instance-state-name': 'running'}) }}"
       register: builder_instances
 
@@ -30,7 +30,7 @@
 
     - name: Stop builder instances
       amazon.aws.ec2_instance:
-        region: "{{ aws_region }}"
+        region: "{{ aws_builder_region }}"
         instance_ids: "{{ builder_instances.instances | map(attribute='instance_id') | list }}"
         state: stopped
         wait: true

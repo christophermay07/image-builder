@@ -1,0 +1,10 @@
+---
+# Packer provisioner playbook: STIG hardening (no Sysprep).
+# Packer launches ansible-playbook on the Linux builder to read this playbook and its roles there.
+# hosts: all refers to Packer's temporary guest inventory; Windows modules execute on the guest over WinRM.
+# The outer build_windows.yml calls windows_image_build, not windows_hardening directly.
+- name: Apply Windows STIG hardening
+  hosts: all
+  become: false
+  roles:
+    - role: windows_hardening

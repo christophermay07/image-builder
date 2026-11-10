@@ -1,0 +1,30 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for cloud_validate
+    options:
+      ## Inherited and derived values
+      cloud_image_result:
+        type: dict
+        description: Registered native image identity and canonical qcow2 checksum for this attempt.
+        required: true
+      image_build_id:
+        type: str
+        description: Current build attempt identity.
+        required: true
+      build_timestamp:
+        type: str
+        description: Frozen timestamp of this build.
+        required: true
+      prepared_qcow2_sha256:
+        type: str
+        description: Checksum of the prepared canonical qcow2.
+        required: true
+
+      ## Cloud dispatch
+      cloud_target:
+        type: str
+        description: Target cloud matching the inventory cloud group.
+        required: true
+        choices: [aws, azure, gcp]

@@ -1,0 +1,14 @@
+---
+# This runs only after all uploads and Release Bundle creation succeed.
+- name: Mark AMI publication complete
+  amazon.aws.ec2_tag:
+    resource: "{{ image_validation_result.image_id }}"
+    region: "{{ image_validation_result.location }}"
+    tags:
+      image_build_id: "{{ image_build_id }}"
+      validation_status: passed
+      publication_status: published
+    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_build_session_token | default(omit, true) }}"
+  delegate_to: "{{ _builder_host }}"

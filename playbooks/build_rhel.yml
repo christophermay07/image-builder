@@ -1,39 +1,76 @@
 ---
 # RHEL Image Builder pipeline.
 #
-# Targets phantom hosts in "method_osbuild" (targets.yml dimension 4). Each phantom host carries variables from
-# four groups:
-#   OS family (rhel8/9_targets) → blueprint template, STIG profile
-#   OS version (rhel_8_10/9_4)  → version string
-#   Profile (profile_base/...)  → extra packages, post-tasks
-#   Method (method_osbuild) → builder_group = "osbuild_builders"
+# Targets RHEL phantom hosts in "rhel_targets:&method_osbuild". Each phantom host carries variables from five
+# groups:
+#   OS family  (e.g., rhel_targets)                 → blueprint template, STIG profile
+#   OS version (e.g., rhel_8_10/rhel_9_4)           → version string
+#   Profile    (e.g., profile_base/profile_database)    → extra packages, post-tasks
+#   Method     (e.g., method_osbuild/method_packer) → builder_group = "builders_osbuild"
+#   Cloud      (e.g., cloud_aws/cloud_azure)        → cloud-specific settings, image conversion target
 #
 # Phantom hosts are NOT real machines and will never be reachable via SSH; gather_facts is disabled because there's
 # nothing to gather. Ansible resolves the host only so it can merge the right group_vars. All roles delegate_to a real
-# builder via builder_group. The rhel_image_build role round-robins across available builders in the osbuild_builders
-# group (see that role for details). So even though "hosts: method_osbuild" looks like we're targeting machines,
-# no SSH connection is made to any phantom host.
+# builder via builder_group. The rhel_image_build role round-robins across available builders in the builders_osbuild
+# group (see that role for details). So even though "hosts: method_osbuild" looks like we're targeting machines, no SSH
+# connection is made to any phantom host.
 #
-# serial is set to the number of available osbuild_builders. This is because osbuild-composer can only run one compose at
-# a time per builder, so we can run at most N composes in parallel where N is the number of builders. The round-robin in
-# the role ensures each builder in a batch gets a different target. With 1 builder this evaluates to serial: 1 (same as
-# before).
+# serial is set to the number of available builders_osbuild. This is because osbuild-composer can only run one compose
+# at a time per builder, so we can run at most N composes in parallel, where N is the number of builders. The
+# round-robin in the role ensures each builder in a batch gets a different target.
 #
 # Use --limit to scope which RHEL variants are built:
-#   --limit rhel9_targets        # all RHEL 9
-#   --limit rhel_9_4             # all RHEL 9.4 profiles
-#   --limit rhel-9.4-base        # exactly one build
-#   --limit 'rhel9_targets:&profile_base'  # RHEL 9 x base only
+#   --limit 'rhel_targets'                       # all RHEL versions, all profiles
+#   --limit 'rhel_9_*'                           # all RHEL 9.x, all profiles
+#   --limit rhel_9_4                             # RHEL 9.4, all profiles
+#   --limit rhel-9.4-base-aws                    # RHEL 9.4, base profile, AWS (exactly one image build)
+#   --limit 'rhel_9_*:&profile_base:&cloud_aws'  # all RHEL 9.x, base profile, AWS only
+#
+# Use --tags to run a subset of the pipeline (useful during development or when
+# re-running a failed step without rebuilding from scratch):
+#
+#   Phase tags (span one or more roles):
+#     build       - compose the image + fstab fixup (everything before hardening)
+#     validate    - hardening / STIG remediation only
+#     prepare     - compress the canonical qcow2 before conversion
+#     smoke       - boot the registered cloud image and require authenticated SSH
+#     export      - push artifacts after the cloud smoke gate
+#     convert     - cloud format conversion only
+#
+#   Role-specific tags (target exactly one role):
+#     compose     - osbuild compose only (no fstab fixup)
+#     fstab-fixup - RHEL 8 fstab workaround only
+#     stig        - same as validate (alias for readability)
+#     artifactory - same as export (alias for readability)
+#     cloud       - same as convert (alias for readability)
+#
+# Extra cloud-init files are composed into the image; use build or compose to apply changes.
+#
+#   Examples:
+#     --tags build                          # compose + fstab fixup, skip everything after
+#     --tags stig --limit rhel-9.4-base-aws # re-run just hardening on one image
+#     --tags prepare,convert,smoke,export    # validate and publish an existing local qcow2
+#
+# Export requires validation from this attempt for every target cloud; --tags export alone fails closed.
 #
 # Failure handling: block/rescue catches per-target failures. The play continues through all targets, then a second play
 # reports which images failed. In the AAP workflow, this job uses always_nodes (not failure_nodes) to reach the
 # Distribute step, so a failure here won't kill the Windows branch or skip distribution of successful images.
 - name: Build RHEL images with Image Builder
-  hosts: method_osbuild
+  hosts: "rhel_targets:&method_osbuild"
   gather_facts: false
-  # default([1]) so that a missing group yields length 1 (serial: 1) rather than 0.
-  serial: "{{ groups['osbuild_builders'] | default([1]) | length }}"
+  # serial = number of available builders so each batch can round-robin one compose per builder.
+  # Clamp to 1 when builders_osbuild is empty (Ansible treats serial: 0 as "all hosts at once").
+  # It won't save the run (every target will still fail to delegate), but it keeps failures sequential.
+  serial: "{{ [groups['builders_osbuild'] | default([]) | length, 1] | max }}"
   tasks:
+    - name: Initialize image build attempt
+      ansible.builtin.include_role:
+        name: image_build_initialize
+        apply:
+          tags: [always]
+      tags: [always]
+
     - name: Build, harden, and export RHEL image
       block:
         - name: Build RHEL image
@@ -46,57 +83,95 @@
             name: rhel8_fstab_fixup
           tags: [build, rhel, fstab-fixup]
 
-        - name: Harden RHEL image
+        - name: Scan RHEL image for compliance
           ansible.builtin.include_role:
-            name: rhel_hardening
+            name: rhel_compliance_scan
           tags: [validate, rhel, stig]
 
-        - name: Prepare cloud-init
+        - name: Prepare canonical qcow2
           ansible.builtin.include_role:
-            name: cloud_init_prep
-          tags: [cloud-init, rhel]
+            name: image_prepare
+            apply:
+              tags: [prepare, rhel]
+          tags: [prepare, rhel]
 
-        - name: Export image artifacts
-          ansible.builtin.include_role:
-            name: image_export
-          tags: [export, rhel, artifactory]
-
-        - name: Convert to cloud formats
+        - name: Register target cloud image before publication
           ansible.builtin.include_role:
             name: cloud_convert
+            apply:
+              tags: [convert, rhel, cloud]
           tags: [convert, rhel, cloud]
 
+        - name: Require authenticated SSH to registered cloud image
+          ansible.builtin.include_role:
+            name: cloud_validate
+            apply:
+              tags: [smoke, rhel]
+          tags: [smoke, rhel]
+
+        - name: Check native-image validation before publication
+          ansible.builtin.include_role:
+            name: image_validation_gate
+            apply:
+              tags: [export, rhel, artifactory]
+          tags: [export, rhel, artifactory]
+
+        - name: Prepare producer artifacts
+          ansible.builtin.include_role:
+            name: rhel_artifacts_prepare
+            apply:
+              tags: [export, rhel, artifactory]
+          tags: [export, rhel, artifactory]
+
+        - name: Upload artifacts to Artifactory
+          ansible.builtin.include_role:
+            name: artifactory_upload
+            apply:
+              tags: [export, rhel, artifactory]
+          tags: [export, rhel, artifactory]
+
+        - name: Create Artifactory release bundle
+          ansible.builtin.include_role:
+            name: artifactory_release_bundle
+            apply:
+              tags: [export, release-bundle, rhel, artifactory]
+          tags: [export, release-bundle, rhel, artifactory]
+
+        - name: Approve published native image for distribution
+          ansible.builtin.include_role:
+            name: image_release_approve
+            apply:
+              tags: [export, release-bundle, rhel, artifactory]
+          tags: [export, release-bundle, rhel, artifactory]
+
       rescue:
-        # Failures are stored on localhost (the only stable host across the run; phantom hosts aren't real, and the
-        # builder might be the thing that broke). The second play below reads this list to produce a summary.
+        # Keep per-target failure facts for the final reporting play and accumulated diagnostics on localhost.
+        # Rescue lets every serial batch finish before the final play fails unsuccessful targets.
         - name: Record build failure
           ansible.builtin.set_fact:
             _build_failed: true
             _build_error: "{{ ansible_failed_result | default(ansible_failed_task) | default('unknown error') }}"
-          delegate_facts: false
           delegate_to: localhost
+          delegate_facts: false
 
         - name: Append to failure list
           ansible.builtin.set_fact:
             # Read the accumulated list from localhost (may not exist yet), append this failure, and
-            # write it back. delegate_to + delegate_facts stores it on localhost for the reporting play.
+            # write it back. delegate_to + delegate_facts stores it on localhost for pipeline diagnostics.
             build_failures: >-
               {{ (hostvars['localhost']['build_failures'] | default([])) +
                  [{'target': inventory_hostname, 'error': _build_error}] }}
-          delegate_facts: true
           delegate_to: localhost
+          delegate_facts: true
 
-# Second play: runs on localhost to report failures collected above. The rescue blocks delegate_to localhost to store
-# the failure list, so this play just reads that accumulated list and fails the job template if anything broke.
+# Report against the original targets after every serial batch has finished. A localhost-only summary is excluded by
+# --limit; failing inside a serial batch can stop later batches when every host in the current batch fails.
 - name: Report RHEL build failures
-  hosts: localhost
+  hosts: "rhel_targets:&method_osbuild"
   gather_facts: false
   tasks:
-    - name: Report failed RHEL builds
+    - name: Report failed RHEL target
       ansible.builtin.fail:
-        msg: |-
-          {{ build_failures | length }} RHEL image build(s) failed:
-          {% for f in build_failures %}
-          - {{ f.target }}: {{ f.error }}
-          {% endfor %}
-      when: (build_failures | default([])) | length > 0
+        msg: "RHEL image {{ inventory_hostname }} failed: {{ _build_error }}"
+      when: _build_failed | default(false) | bool
+      tags: [always]

@@ -10,13 +10,32 @@
 # where RHEL and Windows build in parallel and stop_builders is
 # wired as an always-node so builders stop even on failure.
 #
-# Use --limit to scope which targets are built:
-#   ansible-playbook playbooks/site.yml                       # everything
-#   ansible-playbook playbooks/site.yml --limit rhel9_targets # RHEL 9 only
-#   ansible-playbook playbooks/site.yml --limit profile_base  # base profiles only
-# --limit only affects phantom hosts (the build targets). Builder
-# lifecycle (start/stop) and configuration always run for all builders.
-# See individual playbooks for additional examples.
+# WARNING: --limit on site.yml applies to ALL plays, including lifecycle plays that target localhost or the builders
+# group. A limit like "profile_database" would skip start_builders (hosts: localhost), configure_builders
+# (hosts: builders), etc. For scoped full-pipeline runs, use the AAP Workflow Template with a Limit instead.
+#
+# Why --limit breaks site.yml but works in the AAP Workflow Template:
+#
+#   Ansible's --limit is global: for every play, the effective host list is the intersection of the play's hosts:
+#   pattern and the --limit pattern. So `--limit profile_database` on site.yml means:
+#
+#     start_builders     (hosts: localhost)  -> localhost ∩ profile_database = ∅  -> SKIPPED (builders never start)
+#     configure_builders (hosts: builders)   -> builders  ∩ profile_database = ∅  -> SKIPPED (builders never configured)
+#     build_rhel         (hosts: phantoms)   -> phantoms  ∩ profile_database = ✓  -> FAILS (no running builders)
+#     distribute_images  (hosts: localhost)  -> localhost ∩ profile_database = ∅  -> SKIPPED
+#     stop_builders      (hosts: localhost)  -> localhost ∩ profile_database = ∅  -> SKIPPED
+#
+#   The AAP Workflow Template avoids this because each step is a separate Job Template node. AAP passes the
+#   workflow-level Limit to each job, but lifecycle job templates (start/stop/configure builders) target localhost
+#   or the builders group directly; none of their hosts intersect the limit, so they behave the same with or
+#   without it. Only the build job templates have phantom hosts that match profile/platform groups, so only
+#   those jobs are scoped down by the limit. The result: lifecycle steps always run, builds are filtered.
+#
+# For CLI, use site.yml without a limit for a full run, or run individual build playbooks with --limit:
+#   ansible-navigator run playbooks/site.yml                                          # full pipeline, all targets
+#   ansible-navigator run playbooks/build_rhel.yml -- --limit 'rhel_9_*'               # RHEL 9 only (no lifecycle)
+#   ansible-navigator run playbooks/build_rhel.yml -- --limit profile_database             # database profiles only
+#   ansible-navigator run playbooks/build_rhel.yml -- --limit 'rhel_9_*:&profile_database'         # intersection
 
 # Where each step actually runs:
 #   start_builders     → localhost  (AWS API calls, no SSH)

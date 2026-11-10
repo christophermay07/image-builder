@@ -1,65 +1,126 @@
 ---
-# Convert qcow2 to AMI via S3 import.
-# Uses aws_build_* credentials (build function). Override to split from distribute/cleanup.
-- name: Upload qcow2 to S3 for AMI import
-  amazon.aws.s3_object:
-    bucket: "{{ ami_import_bucket }}"
-    object: "{{ vm_name }}/{{ vm_name }}.qcow2"
-    src: "{{ image_output_dir }}/{{ vm_name }}.qcow2"
-    mode: put
-    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
-    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
-    session_token: "{{ aws_build_session_token | default(omit, true) }}"
-  delegate_to: "{{ _builder_host }}"
+# AWS VM Import accepts raw disks, not qcow2. Preserve the canonical qcow2 for publication after validation.
+- name: Require AWS branch inputs
+  ansible.builtin.assert:
+    that:
+      - profile is string
+      - profile | trim | length > 0
+      - os_version is string
+      - os_version | trim | length > 0
+      - aws_region is string
+      - aws_region | trim | length > 0
+      - ami_import_bucket is string
+      - ami_import_bucket | trim | length > 0
+      - ami_base_tags is mapping
+      - image_build_id is string
+      - image_build_id is match('^[a-z0-9]{32}$')
+      - prepared_qcow2_sha256 is string
+      - prepared_qcow2_sha256 is match('^[a-f0-9]{64}$')
+    fail_msg: Supply AWS import settings, base tags, a current RHEL build identity, and a prepared qcow2 checksum.
 
-- name: Import qcow2 as AMI snapshot
-  amazon.aws.ec2_import_image:
-    description: "{{ vm_name }} - {{ profile }} - {{ os_version }}"
-    disk_containers:
-      - description: "{{ vm_name }}"
-        format: qcow2
-        user_bucket:
-          s3_bucket: "{{ ami_import_bucket }}"
-          s3_key: "{{ vm_name }}/{{ vm_name }}.qcow2"
-    region: "{{ aws_region }}"
-    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
-    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
-    session_token: "{{ aws_build_session_token | default(omit, true) }}"
-  register: ami_import
-  delegate_to: "{{ _builder_host }}"
-
-- name: Wait for AMI import to complete
-  amazon.aws.ec2_import_image_info:
-    import_task_ids:
-      - "{{ ami_import.import_task_id }}"
-    region: "{{ aws_region }}"
-    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
-    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
-    session_token: "{{ aws_build_session_token | default(omit, true) }}"
-  register: import_status
-  until: import_status.import_image[0].status == 'completed'
-  retries: 120
-  delay: 30
-  delegate_to: "{{ _builder_host }}"
-
-- name: Record imported AMI ID
+- name: Set unique import staging paths
   ansible.builtin.set_fact:
-    aws_ami_id: "{{ import_status.import_image[0].image_id }}"
+    _rhel_import_raw: "{{ image_output_dir }}/{{ image_build_id }}.raw"
+    _rhel_import_key: "{{ vm_name }}/{{ image_build_id }}/disk.raw"
 
-- name: Tag AMI
-  amazon.aws.ec2_ami:
-    image_id: "{{ aws_ami_id }}"
-    region: "{{ aws_region }}"
-    tags:
-      Name: "{{ vm_name }}"
-      os_family: "{{ os_family }}"
-      os_version: "{{ os_version }}"
-      profile: "{{ profile }}"
-      stig_applied: "true"
-      fips_enabled: "true"
-      build_timestamp: "{{ build_timestamp | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}"
-    state: present
-    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
-    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
-    session_token: "{{ aws_build_session_token | default(omit, true) }}"
-  delegate_to: "{{ _builder_host }}"
+- name: Import raw staging disk
+  block:
+    - name: Convert prepared qcow2 to raw for AWS import
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - convert
+          - -f
+          - qcow2
+          - -O
+          - raw
+          - "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+          - "{{ _rhel_import_raw }}"
+      changed_when: true
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Upload raw disk to S3 for AMI import
+      amazon.aws.s3_object:
+        bucket: "{{ ami_import_bucket }}"
+        object: "{{ _rhel_import_key }}"
+        src: "{{ _rhel_import_raw }}"
+        region: "{{ aws_region }}"
+        mode: put
+        access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+        secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+        session_token: "{{ aws_build_session_token | default(omit, true) }}"
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Import raw disk as AMI
+      amazon.aws.ec2_import_image:
+        task_name: "rhel-{{ image_build_id }}"
+        description: "{{ vm_name }} - {{ profile }} - {{ os_version }}"
+        disk_containers:
+          - description: "{{ vm_name }}"
+            format: raw
+            user_bucket:
+              s3_bucket: "{{ ami_import_bucket }}"
+              s3_key: "{{ _rhel_import_key }}"
+        region: "{{ aws_region }}"
+        access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+        secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+        session_token: "{{ aws_build_session_token | default(omit, true) }}"
+      register: ami_import
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Wait for terminal AMI import status
+      amazon.aws.ec2_import_image_info:
+        import_task_ids:
+          - "{{ ami_import.import_image.import_task_id }}"
+        region: "{{ aws_region }}"
+        access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+        secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+        session_token: "{{ aws_build_session_token | default(omit, true) }}"
+      register: import_status
+      until:
+        - import_status.import_image | length > 0
+        - >-
+          import_status.import_image[0].status in
+          ['completed', 'deleted', 'deleting', 'cancelled', 'canceled', 'failed']
+      retries: 120
+      delay: 30
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Require completed AMI import
+      ansible.builtin.assert:
+        that:
+          - import_status.import_image[0].status == 'completed'
+          - import_status.import_image[0].image_id | default('') | length > 0
+        fail_msg: >-
+          AMI import {{ ami_import.import_image.import_task_id }} did not complete:
+          {{ import_status.import_image[0].status_message | default(import_status.import_image[0].status) }}.
+          Staged disk: s3://{{ ami_import_bucket }}/{{ _rhel_import_key }}.
+
+    - name: Record imported AMI ID
+      ansible.builtin.set_fact:
+        aws_ami_id: "{{ import_status.import_image[0].image_id }}"
+        cloud_image_result:
+          build_id: "{{ image_build_id }}"
+          provider: aws
+          image_id: "{{ import_status.import_image[0].image_id }}"
+          location: "{{ aws_region }}"
+          qcow2_sha256: "{{ prepared_qcow2_sha256 }}"
+
+    - name: Tag imported AMI as awaiting validation
+      amazon.aws.ec2_tag:
+        resource: "{{ aws_ami_id }}"
+        region: "{{ aws_region }}"
+        tags: >-
+          {{ ami_base_tags | combine({'image_build_id': image_build_id,
+             'validation_status': 'pending', 'publication_status': 'pending'}) }}
+        access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+        secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+        session_token: "{{ aws_build_session_token | default(omit, true) }}"
+      delegate_to: "{{ _builder_host }}"
+
+  always:
+    - name: Remove local raw staging disk
+      ansible.builtin.file:
+        path: "{{ _rhel_import_raw }}"
+        state: absent
+      delegate_to: "{{ _builder_host }}"

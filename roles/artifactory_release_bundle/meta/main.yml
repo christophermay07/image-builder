@@ -1,8 +1,9 @@
 ---
 galaxy_info:
-  author: "the client"
+  author: ""
   license: ""
   role_name: artifactory_release_bundle
   description: "Create and sign JFrog Release Bundle v2"
   min_ansible_version: "2.16"
+# Artifact publication must precede this role in the caller; no upload role is automatically invoked here.
 dependencies: []

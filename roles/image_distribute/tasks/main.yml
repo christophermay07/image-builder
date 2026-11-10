@@ -1,22 +1,19 @@
 ---
 # Distribute images to target regions/accounts per cloud provider.
-# Dispatches to provider-specific task files based on cloud_targets.
+# Dispatches to provider-specific task files based on cloud group membership.
 # Mirrors the dispatch pattern used by cloud_convert.
 
-# _builder_host is inherited from the build role (set once per phantom host via round-robin; see rhel_image_build).
+# _builder_host is restored from the approved publication record before any delegated provider operation.
+
+- name: Validate cloud dispatch
+  ansible.builtin.assert:
+    that:
+      - group_names | intersect(['cloud_aws', 'cloud_azure', 'cloud_gcp']) | length == 1
+    fail_msg: 'The target must belong to exactly one supported cloud group: cloud_aws, cloud_azure, or cloud_gcp.'
 
 - name: Set VM name from inventory hostname
   ansible.builtin.set_fact:
     vm_name: "{{ inventory_hostname }}"
 
-- name: Distribute to AWS (AMI copy + account sharing)
-  ansible.builtin.include_tasks: distribute_aws.yml
-  when: "'aws' in cloud_targets"
-
-- name: Distribute to Azure (placeholder)
-  ansible.builtin.include_tasks: distribute_azure.yml
-  when: "'azure' in cloud_targets"
-
-- name: Distribute to GCP (placeholder)
-  ansible.builtin.include_tasks: distribute_gcp.yml
-  when: "'gcp' in cloud_targets"
+- name: Distribute published image
+  ansible.builtin.include_tasks: distribute_published.yml

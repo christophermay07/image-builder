@@ -10,13 +10,10 @@
 # In AAP, this sequence is the "Image Build Pipeline (Ephemeral)" Workflow Template (see aap-config
 # workflow_templates.yml).
 #
-# Use --limit to scope which targets are built (same as site.yml):
-#   ansible-playbook playbooks/site_ephemeral.yml
-#   ansible-playbook playbooks/site_ephemeral.yml --limit rhel9_targets
-#
-# Override builder count for scaling:
-#   ansible-playbook playbooks/site_ephemeral.yml \
-#     -e '{"ephemeral_builder_count": {"osbuild": 3, "packer": 2}}'
+# Use --limit to scope which targets are built (same as site.yml).
+# Builder count is derived automatically: one builder per target.
+#   ansible-navigator run playbooks/site_ephemeral.yml
+#   ansible-navigator run playbooks/site_ephemeral.yml -- --limit 'rhel_9_*'
 
 # Where each step actually runs:
 #   provision_builders → localhost  (AWS API calls, creates instances)

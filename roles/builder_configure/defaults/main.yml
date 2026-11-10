@@ -4,15 +4,19 @@
 # Every variable the role consumes is listed here so the role is self-documenting.
 # Sections describe where the authoritative definition lives in this project's inventory.
 
-## Role-specific, Packer builders (defined in group_vars/packer_builders.yml)
+## Role-specific, Packer builders (defined in group_vars/builders_packer.yml)
 # Packer version and download URL; operator-facing knobs.
 
 packer_version: "1.16.1"
-packer_binary: /usr/local/bin/packer
 packer_download_url: "https://releases.hashicorp.com/packer/{{ packer_version }}/packer_{{ packer_version }}_linux_amd64.zip"
+packer_checksum: "sha256:af38a9e93e4ed1b9ca68206ae969c64c300c82a3dde46a780dfa629f0867f651"
+
+## Cross-role, packer method (defined in group_vars/method_packer.yml)
+# Real builders do not inherit the phantom target's method group. This fallback is used unless explicitly overridden.
+packer_binary: /usr/local/bin/packer
 
 ## Cross-role, all hosts (defined in group_vars/all.yml)
-# Shared paths used by multiple build and export roles.
+# Shared paths used by multiple build and export roles. blueprint_dir has a role fallback below.
 
 # Work directory structure
 builder_work_dir: /var/lib/image-builder
@@ -20,14 +24,14 @@ image_output_dir: "{{ builder_work_dir }}/output"
 report_output_dir: "{{ builder_work_dir }}/reports"
 blueprint_dir: "{{ builder_work_dir }}/blueprints"
 
-## Role-specific, per-builder-type (defined in group_vars/*_builders.yml)
-# Per-builder-type packages and collections; empty defaults so the role works standalone.
+## Role-specific, per-builder-type (defined in group_vars/builders_*.yml)
+# Empty package lists skip installation. The dependency lists below are consumed outside this role.
 
 builder_packages: []
 validation_packages: []
 
-# Python packages installed via pip on the builder host (e.g., Packer builders need pywinrm).
+# Python packages consumed by per-build builder_ansible_prepare (e.g., Packer builds need pywinrm).
 builder_pip_packages: []
 
-# Ansible collections installed on builder host (e.g., Packer builders need ansible.windows for provisioner playbooks).
+# Forward-looking collection specification retained for other callers; the Windows build reads requirements.yml.
 builder_collections: []

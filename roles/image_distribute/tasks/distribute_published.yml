@@ -1,0 +1,18 @@
+---
+# In-process facts take precedence, including an empty record for a failed attempt.
+# AAP supplies one target-keyed artifact to the separate distribution job.
+- name: Select published image record
+  ansible.builtin.set_fact:
+    _published_image: >-
+      {{ published_image | default(lookup('vars', 'image_publication_' ~ (inventory_hostname | hash('sha256')),
+         default={})) }}
+
+- name: Explain skipped distribution
+  ansible.builtin.debug:
+    msg: "Skipping {{ inventory_hostname }}: no successfully tested and published image from the build job."
+  when: _published_image | length == 0
+
+# Conditional inclusion prevents Ansible resolving an absent delegated builder for skipped targets.
+- name: Distribute only approved images
+  ansible.builtin.include_tasks: validate_publication.yml
+  when: _published_image | length > 0

@@ -1,0 +1,17 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for image_prepare
+    options:
+      ## Inherited and derived values
+      _builder_host:
+        type: str
+        description: Assigned Linux builder hostname.
+        required: true
+      builder_work_dir:
+        type: str
+        description: Base directory for builder workspaces.
+      image_output_dir:
+        type: str
+        description: Directory containing the composed qcow2.

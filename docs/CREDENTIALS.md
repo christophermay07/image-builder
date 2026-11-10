@@ -24,7 +24,7 @@ Credentials used by this pipeline:
 
 <!-- TODO: confirm Vault paths with Vault admin -->
 <!-- TODO: confirm Vault KV engine version (v1 vs v2); path format differs -->
-<!-- Artifactory custom credential type: see open question #5 and ADR-IF-027 -->
+<!-- Artifactory custom credential type: see open question #5 and ADR-IB-027 -->
 
 ## Job Runtime Credentials
 
@@ -38,11 +38,10 @@ job completes.
 |------------------------------------|-----------------------------|-----------------------------|------------------------------|
 | `artifactory_token_image_upload`   | Upload built images (qcow2) | Deploy only, no delete, no  | Used by `image_export` role  |
 |                                    | to Artifactory              | overwrite                   |                              |
-| `artifactory_token_scan_upload`    | Upload compliance scan      | Deploy only                 | Used by                      |
-|                                    | results and build metadata  |                             | `image_release_publish` role |
-| `artifactory_token_release_bundle` | Create and sign Release     | Manage release bundles      | Used by                      |
+| `artifactory_token_scan_upload`    | Upload compliance scan      | Deploy only                 | Used by role:                |
+|                                    | results and build metadata  |                             | `image_release_publish`      |
+| `artifactory_token_release_bundle` | Create and sign Release     | Manage release bundles      | Used by role:                |
 |                                    | Bundle v2                   |                             | `artifactory_release_bundle` |
-|                                    |                             |                             | role                         |
 
 The image-upload and scan-upload identities are deliberately separate: they have different retention policies and
 different downstream consumers. Keeping them distinct means a compromised scan-upload token cannot overwrite a
@@ -50,10 +49,10 @@ production image.
 
 ### Signing
 
-| Credential  | Purpose                               | Permission | Notes                                              |
-|-------------|---------------------------------------|------------|----------------------------------------------------|
-| Signing key | Sign image manifests and scan results | Sign only  | Vault Transit; private key never materializes. See |
-|             |                                       |            | [Image Signing](#image-signing-decision-required)  |
+| Credential  | Purpose               | Permission | Notes                                                 |
+|-------------|-----------------------|------------|-------------------------------------------------------|
+| Signing key | Sign image manifests  | Sign only  | Vault Transit; private key never materializes.        |
+|             | and scan results      |            | See [Image Signing](#image-signing-decision-required) |
 
 ### AWS
 
@@ -98,25 +97,27 @@ operational.
 The pipeline needs to do the following with AWS. The two build methods (osbuild for RHEL, Packer for Windows) have
 different image-creation paths, so the permission set is a union of both.
 
-| What                                                 | Why                                        | Which build method               |
-|------------------------------------------------------|--------------------------------------------|----------------------------------|
-| Create, start, stop, and terminate EC2 instances     | Build hosts for Packer and                 | Both                             |
-|                                                      | osbuild-composer                           |                                  |
-| Create AMIs from running instances (`CreateImage`)   | Capture the finished Windows image         | Windows (Packer `amazon-ebs`)    |
-| Upload qcow2 to S3 and import as AMI (`ImportImage`) | Convert the osbuild qcow2 into an AMI      | RHEL (osbuild → `cloud_convert`) |
-| Tag EC2 resources                                    | Track images by OS, profile, build         | Both                             |
-|                                                      | timestamp                                  |                                  |
-| Manage temporary key pairs or SSM sessions           | Connect to builder instances during        | Both                             |
-|                                                      | provisioning                               |                                  |
-| Create and manage security groups                    | Packer manages its own SG for WinRM access | Windows                          |
-| Encrypt and decrypt with KMS                         | AMI and snapshot encryption                | Both                             |
-| Upload objects to S3                                 | Stage the qcow2 for VM Import              | RHEL                             |
-| Pass IAM roles to EC2 instances and                  | Builder instance profile; AWS VM           | Both (one PassRole target for    |
-| to the `vmimport` service                            | Import service role                        | Windows, two for RHEL)           |
-| Copy AMIs across regions                             | Multi-region availability                  | Both (post-build)                |
-| Share AMIs with other accounts                       | Cross-account delivery to the target       | Both (post-build)                |
-|                                                      | account                                    |                                  |
-| Deregister AMIs and delete snapshots                 | Lifecycle cleanup of old images            | Both (cleanup)                   |
+| What                                 | Why                                        | Which build method               |
+|--------------------------------------|--------------------------------------------|----------------------------------|
+| Create, start, stop, and terminate   | Build hosts for Packer and                 | Both                             |
+| EC2 instances                        | osbuild-composer                           |                                  |
+| Create AMIs from running instances   | Capture the finished Windows image         | Windows (Packer `amazon-ebs`)    |
+| (`CreateImage`)                      |                                            |                                  |
+| Upload qcow2 to S3 and import as AMI | Convert the osbuild qcow2 into an AMI      | RHEL (osbuild → `cloud_convert`) |
+| (`ImportImage`)                      |                                            |                                  |
+| Tag EC2 resources                    | Track images by OS, profile, build         | Both                             |
+|                                      | timestamp                                  |                                  |
+| Manage temporary key pairs or SSM    | Connect to builder instances during        | Both                             |
+| sessions                             | provisioning                               |                                  |
+| Create and manage security groups    | Packer manages its own SG for WinRM access | Windows                          |
+| Encrypt and decrypt with KMS         | AMI and snapshot encryption                | Both                             |
+| Upload objects to S3                 | Stage the qcow2 for VM Import              | RHEL                             |
+| Pass IAM roles to EC2 instances and  | Builder instance profile; AWS VM           | Both (one PassRole target for    |
+| to the `vmimport` service            | Import service role                        | Windows, two for RHEL)           |
+| Copy AMIs across regions             | Multi-region availability                  | Both (post-build)                |
+| Share AMIs with other accounts       | Cross-account delivery to the target       | Both (post-build)                |
+|                                      | account                                    |                                  |
+| Deregister AMIs and delete snapshots | Lifecycle cleanup of old images            | Both (cleanup)                   |
 
 ### IAM Role Separation (Recommended)
 
@@ -144,7 +145,7 @@ mechanics.
 > These are derived from the Ansible modules and Packer plugins the pipeline uses today. See the caveat at the top of
 > this document; treat these as a starting point, not a specification.
 
-**Builder function, common** (used by both build methods):
+**Builder function, common** (used by all build methods):
 
 - `ec2:RunInstances`, `StopInstances`, `TerminateInstances`, `Describe*`
 - `ec2:CreateKeyPair`, `DeleteKeyPair` (or SSM equivalents if using SSM connection)
@@ -273,11 +274,14 @@ These are credentials that **structurally cannot** live in Vault because they ex
 they bootstrap the trust chain that makes Vault accessible. Unlike the Vault fallback exceptions above (which are
 temporary workarounds), these are permanent and accepted.
 
-| Exception                              | Where It Lives                   | Why It Can't Be in Vault                                          |
-|----------------------------------------|----------------------------------|-------------------------------------------------------------------|
-| Vault admin / policy-writer credential | Held by platform automation      | Bootstraps the store that holds other secrets                     |
-| Artifactory master / join key          | On disk at Artifactory install   | Predates any secret store; Artifactory is part of the trust chain |
-| GitLab runner authentication token     | `config.toml` on the runner host | Set at runner registration, before any CI job can call Vault      |
+| Exception                              | Where It Lives                   | Why It Can't Be in Vault                 |
+|----------------------------------------|----------------------------------|------------------------------------------|
+| Vault admin / policy-writer credential | Held by platform automation      | Bootstraps the store that holds other    |
+|                                        |                                  | secrets                                  |
+| Artifactory master / join key          | On disk at Artifactory install   | Predates any secret store; Artifactory   |
+|                                        |                                  | is part of the trust chain               |
+| GitLab runner authentication token     | `config.toml` on the runner host | Set at runner registration, before any   |
+|                                        |                                  | CI job can call Vault                    |
 
 These are **not** migration targets. They are inherent to the bootstrapping order of the infrastructure. Each is owned
 by the platform or CI team, not the image build pipeline.
@@ -287,16 +291,17 @@ by the platform or CI team, not the image build pipeline.
 Before delivering a golden image, verify these paths are clean. The build succeeds whether or not these contain
 credentials; the failure mode is silent.
 
-| Path                      | What leaks                                  | When it appears                      | Applies to |
-|---------------------------|---------------------------------------------|--------------------------------------|------------|
-| `/etc/yum.repos.d/`       | Tokens embedded in `baseurl`                | Any build that configures RPM repos  | RHEL       |
-|                           |                                             | with authenticated URLs              |            |
-| `/etc/pki/entitlement/*`, | Subscription identity                       | If `subscription-manager` ran        | RHEL       |
-| `/etc/pki/consumer/*`     |                                             | during the build (BYOL)              |            |
-| `/var/log/rhsm/*`         | Subscription manager logs                   | Same as above                        | RHEL       |
-| `/root/anaconda-ks.cfg`   | Rendered kickstart with password hashes     | If osbuild produces a                | RHEL       |
-|                           |                                             | kickstart-derived artifact           |            |
-| `/var/log/anaconda/*`     | Kickstart contents echoed into install logs | Same as above                        | RHEL       |
+| Path                      | What leaks                           | When it appears                      | Applies to |
+|---------------------------|--------------------------------------|--------------------------------------|------------|
+| `/etc/yum.repos.d/`       | Tokens embedded in `baseurl`         | Any build that configures RPM repos  | RHEL       |
+|                           |                                      | with authenticated URLs              |            |
+| `/etc/pki/entitlement/*`, | Subscription identity                | If `subscription-manager` ran        | RHEL       |
+| `/etc/pki/consumer/*`     |                                      | during the build (BYOL)              |            |
+| `/var/log/rhsm/*`         | Subscription manager logs            | Same as above                        | RHEL       |
+| `/root/anaconda-ks.cfg`   | Rendered kickstart with password     | If osbuild produces a                | RHEL       |
+|                           | hashes                               | kickstart-derived artifact           |            |
+| `/var/log/anaconda/*`     | Kickstart contents echoed into       | Same as above                        | RHEL       |
+|                           | install logs                         |                                      |            |
 
 The cleanup provisioner must run **before snapshot** and should be a pipeline gate, not a convention. If credentials
 persist into the image, every instance launched from it carries the same identity.
@@ -308,75 +313,92 @@ provisioner), which generalizes the instance and removes machine-specific state.
 
 Not secrets, but the pipeline fails without them. Easy to overlook during environment setup.
 
-| Item                                 | Needed By                   | Notes                                           |
-|--------------------------------------|-----------------------------|-------------------------------------------------|
-| Private CA bundle                    | EE, builder instances       | **If** internal services (Artifactory, GitLab,  |
-|                                      |                             | Vault) use a private CA, the CA certificate     |
-|                                      |                             | must be trusted by the EE and builder           |
-|                                      |                             | instances. Without it, TLS connections fail     |
-|                                      |                             | with certificate verification errors. Confirm   |
-|                                      |                             | with the platform team whether a private CA is  |
-|                                      |                             | in use.                                         |
-| Packer plugin binaries               | EE or builder instances     | `packer init` fetches plugins from the          |
-|                                      |                             | HashiCorp registry (requires outbound HTTPS).   |
-|                                      |                             | Builder instances have internet egress, so this |
-|                                      |                             | works directly. If egress is ever restricted,   |
-|                                      |                             | stage plugin binaries in Artifactory and        |
-|                                      |                             | install with `packer plugins install --path`,   |
-|                                      |                             | or bake them into the EE.                       |
-| GPG public keys for RPM verification | Builder instances (RHEL)    | If RHEL repos are mirrored through Artifactory, |
-|                                      |                             | the RPM GPG signing keys need a distribution    |
-|                                      |                             | path to the builders for signature              |
-|                                      |                             | verification. Not needed if pulling from Red    |
-|                                      |                             | Hat CDN directly.                               |
-| RHEL content access                  | Builder instances (RHEL)    | osbuild-composer needs access to RHEL package   |
-|                                      |                             | repositories to compose images. BYOL; handled   |
-|                                      |                             | by the builder's subscription registration.     |
-|                                      |                             | Confirm content source: Red Hat CDN (direct,    |
-|                                      |                             | builders have egress), Satellite, or            |
-|                                      |                             | Artifactory RPM mirror.                         |
-| S3 staging bucket                    | `cloud_convert` role (RHEL) | Bucket for qcow2 upload before                  |
-|                                      |                             | `ec2:ImportImage`. Must exist before the first  |
-|                                      |                             | RHEL build. Should have a lifecycle policy to   |
-|                                      |                             | expire staged artifacts.                        |
-| `vmimport` service role              | `cloud_convert` role (RHEL) | AWS-managed service role required by            |
-|                                      |                             | `ec2:ImportImage`. Must have S3 access to the   |
-|                                      |                             | staging bucket. See                             |
-|                                      |                             | [AWS VM Import docs](https://docs.aws.amazon.com/vm-import/latest/userguide/required-permissions.html). |
+| Item                                 | Needed By         | Notes                                                                     |
+|--------------------------------------|-------------------|---------------------------------------------------------------------------|
+| Private CA bundle                    | EE, builder       | **If** internal services (Artifactory, GitLab, Vault) use a private CA,   |
+|                                      | instances         | the CA certificate must be trusted by the EE and builder instances.       |
+|                                      |                   | Without it, TLS connections fail with certificate verification errors.    |
+|                                      |                   | Confirm with the platform team whether a private CA is in use.            |
+| Packer plugin binaries               | EE or builder     | `packer init` fetches plugins from the HashiCorp registry (requires       |
+|                                      | instances         | outbound HTTPS). Builder instances have internet egress, so this works    |
+|                                      |                   | directly. If egress is ever restricted, stage plugin binaries in          |
+|                                      |                   | Artifactory and install with `packer plugins install --path`, or bake     |
+|                                      |                   | them into the EE.                                                         |
+| GPG public keys for RPM verification | Builder instances | If RHEL repos are mirrored through Artifactory, the RPM GPG signing keys  |
+|                                      | (RHEL)            | need a distribution path to the builders for signature verification. Not  |
+|                                      |                   | needed if pulling from Red Hat CDN directly.                              |
+| RHEL content access                  | Builder instances | osbuild-composer needs access to RHEL package repositories to compose     |
+|                                      | (RHEL)            | images. BYOL; handled by the builder's subscription registration. Confirm |
+|                                      |                   | content source: Red Hat CDN (direct, builders have egress), Satellite, or |
+|                                      |                   | Artifactory RPM mirror.                                                   |
+| S3 staging bucket                    | `cloud_convert`   | Bucket for qcow2 upload before `ec2:ImportImage`. Must exist before the   |
+|                                      | role (RHEL)       | first RHEL build. Should have a lifecycle policy to expire staged         |
+|                                      |                   | artifacts.                                                                |
+| `vmimport` service role              | `cloud_convert`   | AWS-managed service role required by `ec2:ImportImage`. Must have S3      |
+|                                      | role (RHEL)       | access to the staging bucket. See                                         |
+|                                      |                   | [AWS VM Import docs](https://docs.aws.amazon.com/vm-import/latest/userguide/required-permissions.html). |
 
 ## Content Sources Required
 
-The pipeline needs access to the following types of content. We do not prescribe where these come from; the client may
+The pipeline needs access to the following types of content. We do not prescribe where these come from; author may
 serve them from Red Hat directly, Satellite, Artifactory mirrors, or another internal source. We need endpoints and
 credentials (if any) for each.
 
-| Content type               | Needed by                            | What it is                                               |
-|----------------------------|--------------------------------------|----------------------------------------------------------|
-| RHEL RPM packages          | osbuild-composer on RHEL builder     | Base OS packages and updates for composing RHEL images   |
-| Ansible collections        | Execution environment build, runtime | `ansible.posix`, `community.general`, `amazon.aws`,      |
-|                            |                                      |  MindPoint Group STIG, etc.                              |
-| Container base images      | Execution environment build          | `ee-minimal-rhel9` or equivalent for building the        |
-|                            |                                      | pipeline's EE                                            |
-| Packer plugins             | Packer builder                       | `amazon` and `ansible` plugins for Packer (`packer init` |
-|                            |                                      | fetches from HashiCorp registry; builders have egress)   |
-| SCAP content / datastreams | RHEL builder (offline scan)          | OpenSCAP STIG datastreams for compliance scanning        |
-| Windows STIG content       | Packer builder (PowerSTIG)           | PowerSTIG DSC resources for Windows compliance           |
+| Content type               | Needed by                            | What it is                                       |
+|----------------------------|--------------------------------------|--------------------------------------------------|
+| RHEL RPM packages          | osbuild-composer on RHEL builder     | Base OS packages and updates for composing RHEL  |
+|                            |                                      | images                                           |
+| Ansible collections        | Execution environment build, runtime | `ansible.posix`, `community.general`,            |
+|                            |                                      | `amazon.aws`, MindPoint Group STIG, etc.         |
+| Container base images      | Execution environment build          | `ee-minimal-rhel9` or equivalent for building    |
+|                            |                                      | the pipeline's EE                                |
+| Packer plugins             | Packer builder                       | `amazon` and `ansible` plugins for Packer        |
+|                            |                                      | (`packer init` fetches from HashiCorp registry;  |
+|                            |                                      | builders have egress)                            |
+| SCAP content / datastreams | RHEL builder (offline scan)          | OpenSCAP STIG datastreams for compliance         |
+|                            |                                      | scanning                                         |
+| Windows STIG content       | Packer builder (PowerSTIG)           | PowerSTIG DSC resources for Windows compliance   |
 
 ### Common Sources (Reference)
 
 These are typical sources used by other projects. Your environment may differ.
 
-| Content type          | Common source                                | Auth                                          |
-|-----------------------|----------------------------------------------|-----------------------------------------------|
-| RHEL RPM packages     | Red Hat CDN (via subscription), Satellite,   | Subscription entitlement, Satellite           |
-|                       | Artifactory RPM remote                       | registration, or Artifactory token            |
-| Ansible collections   | Automation Hub (`console.redhat.com`),       | Offline token (Automation Hub) or none        |
-|                       | Galaxy, Artifactory generic repo             | (Galaxy)                                      |
-| Container base images | `registry.redhat.io` (authenticated),        | Red Hat service account, or Artifactory token |
-|                       | Artifactory Docker remote                    |                                               |
-| Packer plugins        | HashiCorp releases                           | None (public), or Artifactory token           |
-|                       | (`releases.hashicorp.com`), Artifactory      |                                               |
-|                       | generic repo                                 |                                               |
-| SCAP content          | `scap-security-guide` RPM (included in RHEL  | Same as RPM access                            |
-|                       | repos), or staged in Artifactory             |                                               |
-| Windows STIG content  | PowerShell Gallery, or staged in Artifactory | None (public), or Artifactory token           |
+| Content type          | Common source                                | Auth                                            |
+|-----------------------|----------------------------------------------|-------------------------------------------------|
+| RHEL RPM packages     | Red Hat CDN (via subscription), Satellite,   | Subscription entitlement, Satellite             |
+|                       | Artifactory RPM remote                       | registration, or Artifactory token              |
+| Ansible collections   | Automation Hub (`console.redhat.com`),       | Offline token (Automation Hub) or none (Galaxy) |
+|                       | Galaxy, Artifactory generic repo             |                                                 |
+| Container base images | `registry.redhat.io` (authenticated),        | Red Hat service account, or Artifactory token   |
+|                       | Artifactory Docker remote                    |                                                 |
+| Packer plugins        | HashiCorp releases                           | None (public), or Artifactory token             |
+|                       | (`releases.hashicorp.com`), Artifactory      |                                                 |
+|                       | generic repo                                 |                                                 |
+| SCAP content          | `scap-security-guide` RPM (included in RHEL  | Same as RPM access                              |
+|                       | repos), or staged in Artifactory             |                                                 |
+| Windows STIG content  | PowerShell Gallery, or staged in Artifactory | None (public), or Artifactory token             |
+
+## Open Questions for Platform Team
+
+Unresolved dependencies on the AAP platform team. Each can block delivery if not addressed before the pipeline goes
+live.
+
+1. **Execution environment registration.** Can our org register and use its own execution environment, or is the EE list
+   controlled globally? If globally controlled, every EE update requires a platform team request.
+2. **Credential Admin delegation.** Can our team be granted a delegated Credential Admin role scoped to our organization,
+   so we can create and manage our own credential objects? Without this, every credential change is a platform team
+   ticket. See `aap-config/AAP-PERMISSIONS.md` for the full delegation request.
+3. **Instance group and network reach.** Which instance group do our jobs run on, and does it have network connectivity
+   to Artifactory, GitLab, Vault, and the AWS API endpoints? Network path must be confirmed before any pipeline job can
+   run.
+4. **EE image pull access.** Are custom EEs permitted to pull from our Artifactory container registry, or is the
+   registry credential platform-scoped? If platform-scoped, we need the platform team to configure pull access for our
+   registry.
+5. **Custom credential type for Artifactory.** Has a custom credential type (e.g., "Artifactory API Token") been
+   created in AAP, or can our organization create one? The `artifactory_token` credential in `aap-config/` uses
+   `credential_type: "Custom"`, which requires the type to exist before the credential can be created. The built-in
+   credential types do not have an injection pattern that maps cleanly to a bearer token as an extra var. If custom
+   types are not permitted, fallback options exist (see ADR-IB-027).
+6. **VPC endpoints or NAT for AWS API access.** Does AAP reach AWS API endpoints (STS, EC2, KMS) via VPC interface
+   endpoints or a NAT gateway? This determines which condition type (`aws:SourceVpce` vs `aws:SourceIp`) to use on
+   IAM role trust policies.

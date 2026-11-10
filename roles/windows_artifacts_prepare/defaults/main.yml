@@ -1,0 +1,8 @@
+---
+# Shared builder paths (inventory/group_vars/all.yml).
+builder_work_dir: /var/lib/image-builder
+report_output_dir: "{{ builder_work_dir }}/reports"
+
+# Required from the current build: _builder_host, build_timestamp, cloud_image_result,
+# image_validation_result, and OS/method/profile/cloud provenance.
+# This role requires no Packer settings or guest/cloud credentials.

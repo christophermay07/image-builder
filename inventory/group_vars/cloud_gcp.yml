@@ -1,0 +1,51 @@
+---
+# GCP cloud-specific settings (Dimension 5)
+#
+# Variables here apply to every phantom host that targets GCP.
+# Roles dispatch on group membership ("'cloud_gcp' in group_names").
+#
+# TODO: GCP native registration, smoke testing, approval, and distribution are not implemented.
+# Complete cloud_convert, cloud_validate, image_release_approve, and image_distribute provider handlers.
+# The common RHEL workflow blocks publication until native image registration and SSH validation succeed.
+
+cloud_target: gcp
+
+# cloud-init datasource ordering for GCP images.
+# GCE is checked first; NoCloud is the fallback for local dev/test.
+cloud_init_datasources:
+  - GCE
+  - NoCloud
+
+# Chrony NTP configuration for GCP.
+# GCP's metadata server doubles as an NTP server, reachable from any instance via the metadata.google.internal hostname.
+# https://cloud.google.com/compute/docs/instances/configure-ntp
+chrony_config: |
+  server metadata.google.internal prefer iburst
+  driftfile /var/lib/chrony/drift
+  makestep 1.0 3
+  rtcsync
+  logdir /var/log/chrony
+
+## Image conversion
+
+# TODO: GCP storage settings for image upload
+# gcp_project: ""
+# gcp_zone: ""
+# gcp_storage_bucket: ""
+
+## Image validation (cloud_validate role)
+
+# TODO: Define the GCP validation guest network, instance size, and login inputs when implementing its handler.
+# The AWS builder must reach the temporary GCP guest over SSH through the configured network path.
+# Credentials and native image settings belong here; do not add provider branches to build_rhel.yml.
+
+## Image distribution
+
+# TODO: GCP image sharing settings
+# gcp_target_projects: []
+
+## GCP credentials for image operations
+#
+# Leave these empty; AAP injects them as extra-vars or env vars.
+# gcp_credentials_file: ""
+# gcp_service_account_email: ""

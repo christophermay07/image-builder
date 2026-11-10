@@ -1,43 +1,59 @@
 ---
-# Convert qcow2 to GCP image format (raw -> tar.gz named disk.raw).
-- name: Convert qcow2 to raw format
-  ansible.builtin.command:
-    cmd: >-
-      qemu-img convert -f qcow2 -O raw
-      {{ image_output_dir }}/{{ vm_name }}.qcow2
-      {{ image_output_dir }}/{{ vm_name }}.raw
-  changed_when: true
+# Stage disk.raw in an attempt-specific directory; the archive member keeps GCP's disk.raw name.
+- name: Create private GCP conversion workspace
+  ansible.builtin.tempfile:
+    state: directory
+    path: "{{ image_output_dir }}"
+    prefix: "gcp-{{ image_build_id }}-"
+  register: _gcp_import_workspace
   delegate_to: "{{ _builder_host }}"
 
-- name: Rename to disk.raw (GCP convention)
-  ansible.builtin.command:
-    cmd: >-
-      mv {{ image_output_dir }}/{{ vm_name }}.raw
-      {{ image_output_dir }}/disk.raw
-  changed_when: true
-  delegate_to: "{{ _builder_host }}"
+- name: Set unique GCP conversion output
+  ansible.builtin.set_fact:
+    _gcp_import_archive: "{{ image_output_dir }}/{{ vm_name }}-{{ image_build_id }}-gcp.tar.gz"
 
-# Linter is trying to force use of unarchive module, which is not what we need here.
-- name: Create tar.gz archive for GCP
-  ansible.builtin.command: # noqa: command-instead-of-module
-    cmd: >-
-      tar -czf {{ image_output_dir }}/{{ vm_name }}-gcp.tar.gz
-      -C {{ image_output_dir }} disk.raw
-  changed_when: true
-  delegate_to: "{{ _builder_host }}"
+- name: Prepare GCP image archive
+  block:
+    - name: Convert qcow2 to raw format (GCP disk.raw convention)
+      ansible.builtin.command:
+        argv:
+          - qemu-img
+          - convert
+          - -f
+          - qcow2
+          - -O
+          - raw
+          - "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+          - "{{ _gcp_import_workspace.path }}/disk.raw"
+      changed_when: true
+      delegate_to: "{{ _builder_host }}"
 
-- name: Clean up raw file
-  ansible.builtin.file:
-    path: "{{ image_output_dir }}/disk.raw"
-    state: absent
-  delegate_to: "{{ _builder_host }}"
+    # The archive module is not required on the builder; tar is already used by this provider conversion path.
+    - name: Create tar.gz archive for GCP
+      ansible.builtin.command: # noqa: command-instead-of-module
+        argv:
+          - tar
+          - -czf
+          - "{{ _gcp_import_archive }}"
+          - -C
+          - "{{ _gcp_import_workspace.path }}"
+          - disk.raw
+      changed_when: true
+      delegate_to: "{{ _builder_host }}"
 
-# TODO: Upload tar.gz to GCS and create compute image
-# Requires GCP credentials and google.cloud collection.
-- name: Upload to GCP (placeholder)
-  ansible.builtin.debug:
+  always:
+    - name: Remove GCP raw staging workspace
+      ansible.builtin.file:
+        path: "{{ _gcp_import_workspace.path }}"
+        state: absent
+      delegate_to: "{{ _builder_host }}"
+
+# TODO: Upload _gcp_import_archive to GCS and register a native Compute Engine image.
+# TODO: Wait for native image provisioning to finish before returning a registered image.
+# TODO: Record cloud_image_result with provider=gcp, image_id, location, build_id, and qcow2_sha256.
+# location is the source project; image_id must identify the registered native image, not its GCS object.
+- name: Stop until GCP image registration is implemented
+  ansible.builtin.fail:
     msg: >-
-      TODO: Upload {{ image_output_dir }}/{{ vm_name }}-gcp.tar.gz to GCS
-      and run gcloud compute images create. Requires GCP credentials and
-      google.cloud collection.
-  delegate_to: "{{ _builder_host }}"
+      TODO: Implement GCP upload and native image registration in cloud_convert.
+      No registered image is available for SSH validation; Artifactory publication is blocked.

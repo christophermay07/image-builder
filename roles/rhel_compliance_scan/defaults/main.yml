@@ -1,0 +1,38 @@
+---
+# rhel_compliance_scan role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Role-only (not in group_vars)
+# Internal implementation details; not operator-facing.
+
+# Standard OS path set by the scap-security-guide RPM. Only changes if the package layout changes.
+stig_content_dir: /usr/share/xml/scap/ssg/content
+
+# Temporary mount point for offline image scanning.
+image_mount_point: /mnt/image-scan
+
+## Cross-role, RHEL targets (defined in group_vars/rhel_targets.yml + rhel_*_*.yml)
+# STIG profile settings; also used by rhel_image_build and rhel_artifacts_prepare.
+
+stig_profile: "xccdf_org.ssgproject.content_profile_stig"
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Shared paths used by multiple build and export roles.
+
+builder_work_dir: /var/lib/image-builder
+report_output_dir: "{{ builder_work_dir }}/reports"
+image_output_dir: "{{ builder_work_dir }}/output"
+
+## REQUIRED FROM INVENTORY (no sensible default)
+# These *must* be provided by the inventory.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
+#
+# stig_datastream    - per-OS-family, cross-role   (rhel_targets.yml)     derived from os_major
+
+## Upstream facts (set by earlier plays or roles)
+# Registered or set_fact variables from earlier stages.
+#
+# _builder_host    - builder hostname (set_fact from build role)

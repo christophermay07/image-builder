@@ -1,3 +1,9 @@
 ---
 # RHEL 8.10 version-specific settings
 os_version: "8.10"
+
+# STIG tailoring: rules to deselect from the base profile.
+# Populated after security team review.
+stig_unselected_rules: []
+#   - aide_build_database
+#   - timer_dnf-automatic_enabled

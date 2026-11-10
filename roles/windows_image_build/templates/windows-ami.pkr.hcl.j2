@@ -4,11 +4,11 @@
 packer {
   required_plugins {
     amazon = {
-      version = "~> 1"
+      version = "= {{ packer_plugin_amazon_version }}"
       source  = "github.com/hashicorp/amazon"
     }
     ansible = {
-      version = "~> 1"
+      version = "= {{ packer_plugin_ansible_version }}"
       source  = "github.com/hashicorp/ansible"
     }
   }
@@ -40,7 +40,7 @@ source "amazon-ebs" "windows" {
   region        = var.region
   source_ami    = var.source_ami
 
-  communicator   = "winrm"
+  communicator   = {{ packer_communicator | to_json }}
   winrm_username = "{{ packer_winrm_username }}"
   winrm_password = "{{ packer_winrm_password }}"
   winrm_use_ssl  = true
@@ -49,12 +49,9 @@ source "amazon-ebs" "windows" {
   user_data_file = "{{ packer_template_dir }}/{{ vm_name }}-userdata.ps1"
 
   tags = {
-    Name           = "{{ vm_name }}"
-    os_family      = "{{ os_family }}"
-    os_version     = "{{ os_version }}"
-    profile        = "{{ profile }}"
-    stig_applied   = "true"
-    build_pipeline = "image-builder"
+{% for key, value in ami_base_tags.items() %}
+    {{ key }} = "{{ value }}"
+{% endfor %}
   }
 }
 
@@ -63,37 +60,53 @@ build {
 
   # Apply STIG hardening (no Sysprep; that runs last after the scan).
   provisioner "ansible" {
-    playbook_file = "{{ builder_work_dir }}/packer/{{ vm_name }}-harden.yml"
+    command = "{{ builder_ansible_bin }}/ansible-playbook"
+    ansible_env_vars = [
+{% for key, value in builder_ansible_environment.items() %}
+      {{ (key ~ '=' ~ value) | to_json }},
+{% endfor %}
+    ]
+    playbook_file = "{{ packer_template_dir }}/{{ vm_name }}-harden.yml"
     use_proxy     = false
     extra_arguments = [
       "-e", "ansible_winrm_server_cert_validation=ignore",
-      "-e", "profile={{ profile }}",
-      "-e", "os_version={{ os_version }}"
+      "-e", "@{{ builder_ansible_workspace }}/hardening.yml"
     ]
   }
 
   # Run pre-seal compliance scan via PowerSTIG (build-time diagnostic).
   # The post-AMI validation scan runs separately after the AMI is registered.
   provisioner "ansible" {
-    playbook_file = "{{ builder_work_dir }}/packer/{{ vm_name }}-scan.yml"
+    command = "{{ builder_ansible_bin }}/ansible-playbook"
+    ansible_env_vars = [
+{% for key, value in builder_ansible_environment.items() %}
+      {{ (key ~ '=' ~ value) | to_json }},
+{% endfor %}
+    ]
+    playbook_file = "{{ packer_template_dir }}/{{ vm_name }}-scan.yml"
     use_proxy     = false
     extra_arguments = [
       "-e", "ansible_winrm_server_cert_validation=ignore",
-      "-e", "profile={{ profile }}",
-      "-e", "os_version={{ os_version }}"
+      "-e", "@{{ builder_ansible_workspace }}/scan.yml"
     ]
   }
 
   # Download pre-seal scan results from the guest to the builder.
   provisioner "file" {
-    source      = "C:\\compliance-results\\"
+    source      = {{ (compliance_output_dir ~ '\\') | to_json }}
     destination = "{{ report_output_dir }}/{{ vm_name }}/"
     direction   = "download"
   }
 
   # Generalize and shut down the instance.
   provisioner "ansible" {
-    playbook_file = "{{ builder_work_dir }}/packer/{{ vm_name }}-sysprep.yml"
+    command = "{{ builder_ansible_bin }}/ansible-playbook"
+    ansible_env_vars = [
+{% for key, value in builder_ansible_environment.items() %}
+      {{ (key ~ '=' ~ value) | to_json }},
+{% endfor %}
+    ]
+    playbook_file = "{{ packer_template_dir }}/{{ vm_name }}-sysprep.yml"
     use_proxy     = false
     extra_arguments = [
       "-e", "ansible_winrm_server_cert_validation=ignore"

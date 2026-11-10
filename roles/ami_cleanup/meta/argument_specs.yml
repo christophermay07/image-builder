@@ -1,0 +1,46 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for ami_cleanup
+    options:
+      ## Secrets
+      aws_cleanup_access_key_id:
+        type: str
+        description: Optional explicit AWS access key ID for cleanup operations.
+        no_log: true
+      aws_cleanup_secret_access_key:
+        type: str
+        description: Optional explicit AWS secret access key for cleanup operations.
+        no_log: true
+      aws_cleanup_session_token:
+        type: str
+        description: Optional explicit AWS session token for cleanup operations.
+        no_log: true
+
+      ## Inherited and derived values
+      vm_name:
+        type: str
+        description: Image target name; normally derived from inventory_hostname.
+
+      ## Build target identity
+      cloud_target:
+        type: str
+        description: Cloud provider selected by the target inventory.
+
+      ## AWS settings
+      aws_region:
+        type: str
+        description: Source AWS region included in AMI cleanup.
+      ami_target_regions:
+        type: list
+        description: Additional regions to clean alongside the source AWS region.
+        elements: str
+
+      ## AMI retention
+      ami_cleanup_keep_count:
+        type: int
+        description: Number of recent AMIs to retain per target and region; -1 disables the count limit.
+      ami_cleanup_older_than:
+        type: str
+        description: Delete AMIs created before this YYYY-MM-DD cutoff, independently of the count limit.

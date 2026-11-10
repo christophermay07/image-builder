@@ -1,0 +1,195 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for rhel_image_build
+    options:
+      ## Inherited and derived values
+      builder_group:
+        type: str
+        description: Inventory group used to select a builder for delegation.
+        required: true
+      _builder_host:
+        type: str
+        description: Assigned builder hostname; normally selected from builder_group.
+      vm_name:
+        type: str
+        description: Image target name; normally derived from inventory_hostname.
+      compose_uuid:
+        type: str
+        description: Compose identifier normally extracted from composer-cli output.
+
+      ## Build target identity
+      os_version:
+        type: str
+        description: Operating system release selected by the target inventory.
+        required: true
+      profile:
+        type: str
+        description: Inventory profile selecting image packages, services, and customization.
+        required: true
+      os_major:
+        type: str
+        description: Major operating system version used to filter repository definitions.
+
+      ## Image composition
+      blueprint_template:
+        type: str
+        description: Jinja template used to render the osbuild-composer blueprint.
+        required: true
+      compose_output_type:
+        type: str
+        description: Output format for composition; the current pipeline supports qcow2 only.
+        choices:
+          - qcow2
+      image_version:
+        type: str
+        description: Image version recorded in blueprint or publication metadata.
+      image_version_suffix:
+        type: str
+        description: Suffix appended to the generated calendar version for additional builds.
+      compose_timeout_retries:
+        type: int
+        description: Maximum number of compose status polls.
+      compose_poll_interval:
+        type: int
+        description: Seconds between compose status polls.
+
+      ## Linux customization
+      profile_linux_packages:
+        type: list
+        description: Packages installed in the image for the selected Linux profile.
+        elements: str
+      profile_linux_enabled_services:
+        type: list
+        description: Services enabled at boot in the composed image.
+        elements: str
+      profile_linux_disabled_services:
+        type: list
+        description: Services disabled at boot in the composed image.
+        elements: str
+      blueprint_filesystem_layout:
+        type: dict
+        description: Mapping of image mount points to minimum filesystem sizes.
+      selinux_mode:
+        type: str
+        description: SELinux mode configured in the composed image.
+        choices:
+          - enforcing
+          - permissive
+          - disabled
+
+      ## STIG hardening
+      stig_datastream:
+        type: str
+        description: OpenSCAP datastream filename under the STIG content directory.
+        required: true
+      stig_profile:
+        type: str
+        description: OpenSCAP profile identifier used for STIG remediation or scanning.
+      stig_content_dir:
+        type: str
+        description: Directory containing the installed OpenSCAP STIG content.
+      stig_selected_rules:
+        type: list
+        description: Additional OpenSCAP rules selected beyond the base STIG profile.
+        elements: str
+      stig_unselected_rules:
+        type: list
+        description: OpenSCAP rules excluded from the base STIG profile.
+        elements: str
+
+      ## Cloud-init configuration
+      cloud_init_datasources:
+        type: list
+        description: Cloud-init datasource search order written into the composed image.
+        elements: str
+      cloud_init_extra_configs:
+        type: list
+        description: Additional cloud-init configuration files rendered into the image.
+        elements: dict
+        options:
+          filename:
+            type: str
+            description: Configuration basename.
+            required: true
+          content:
+            type: str
+            description: Complete configuration text.
+            required: true
+      chrony_config:
+        type: str
+        description: Optional chrony configuration written into the composed image.
+
+      ## Yum repositories
+      yum_repo_base_url:
+        type: str
+        description: Base URL referenced by composed repository definitions.
+      yum_repo_gpgkey:
+        type: str
+        description: Signing key URL referenced by composed repository definitions.
+      build_yum_sources:
+        type: list
+        description: Yum repositories made available during composition without installing their definitions in the
+          image.
+        elements: dict
+        options:
+          id:
+            type: str
+            description: Repository identifier.
+            required: true
+          baseurl:
+            type: str
+            description: Repository base URL.
+            required: true
+          name:
+            type: str
+            description: Repository display name.
+          gpgkey:
+            type: str
+            description: Signing key URL.
+          gpgcheck:
+            type: bool
+            description: Verify package signatures.
+          os_major:
+            type: raw
+            description: Optional major version or list of major versions.
+      blueprint_yum_repos:
+        type: list
+        description: Yum repository definitions installed in the composed image.
+        elements: dict
+        options:
+          id:
+            type: str
+            description: Repository identifier.
+            required: true
+          baseurl:
+            type: str
+            description: Repository base URL.
+            required: true
+          name:
+            type: str
+            description: Repository display name.
+          gpgkey:
+            type: str
+            description: Signing key URL.
+          gpgcheck:
+            type: bool
+            description: Verify package signatures.
+          os_major:
+            type: raw
+            description: Optional major version or list of major versions.
+          enabled:
+            type: bool
+            description: Enable the installed repository.
+
+      ## Working and output directories
+      builder_work_dir:
+        type: str
+        description: Base directory for builder workspaces and artifacts.
+      blueprint_dir:
+        type: str
+        description: Builder directory for rendered blueprints and repository source files.
+      image_output_dir:
+        type: str
+        description: Builder directory containing composed images and converted artifacts.

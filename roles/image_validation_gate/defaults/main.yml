@@ -1,0 +1,4 @@
+---
+# Required context from initialization and the producer:
+# _builder_host, image_build_id, build_timestamp, cloud_target, cloud_image_result, image_validation_result.
+# This role performs checks only; it does not run guest validation, upload files, or grant approval.

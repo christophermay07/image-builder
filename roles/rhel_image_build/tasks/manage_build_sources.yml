@@ -1,0 +1,66 @@
+---
+# Add build-time yum sources to osbuild-composer.
+#
+# This task file pushes yum repo definitions to osbuild-composer so it can pull packages from them during the compose.
+# These sources are NOT baked into the final image (that is handled separately by [[customizations.repositories]] in the
+# blueprint template).
+#
+# Flow:
+#   1. Filter build_yum_sources down to repos that apply to this OS major version
+#   2. Template each filtered repo into an osbuild source TOML file on the builder
+#   3. Push each source to osbuild-composer via composer-cli
+#
+# os_major filtering:
+#   Each repo entry may optionally set os_major to restrict which RHEL major versions it applies to. os_major can be:
+#     - absent:         repo applies to ALL RHEL versions
+#     - a single value: os_major: "9"
+#     - a list:         os_major: ["8", "9"]
+#
+#   The filter normalizes both scalar and list forms using [x] | flatten:
+#     - scalar "9"      -> ["9"] | flatten -> ["9"]
+#     - list ["8", "9"] -> [["8", "9"]] | flatten -> ["8", "9"]
+#   Then checks if the target's os_major is in the resulting list.
+#
+# Jinja namespace pattern:
+#   Jinja2 variables set inside a for-loop are scoped to that iteration and lost after the loop ends. The namespace()
+#   object is the standard workaround: it creates a mutable container that persists across loop iterations, letting us
+#   build up a result list one entry at a time.
+
+# Filter build_yum_sources to only repos matching this target's RHEL major version.
+# Entries without os_major always pass (they apply to all versions).
+- name: Filter build sources for this OS major version
+  ansible.builtin.set_fact:
+    _filtered_build_sources: >-
+      {%- set ns = namespace(result=[]) -%}
+      {%- for src in build_yum_sources -%}
+      {%-   set majors = [src.os_major | default(os_major)] | flatten | map('string') | list -%}
+      {%-   if os_major in majors -%}
+      {%-     set ns.result = ns.result + [src] -%}
+      {%-   endif -%}
+      {%- endfor -%}
+      {{ ns.result }}
+
+# Render each filtered repo as an osbuild source TOML file on the builder host. The template (osbuild-source.toml.j2)
+# maps our entry format to osbuild's source format (baseurl -> url, gpgkey -> gpgkeys list, etc.).
+- name: Template build source files
+  ansible.builtin.template:
+    src: osbuild-source.toml.j2
+    dest: "{{ blueprint_dir }}/source-{{ item.id }}.toml"
+    mode: "0644"
+  loop: "{{ _filtered_build_sources }}"
+  loop_control:
+    label: "{{ item.id }}"
+  vars:
+    _source: "{{ item }}"
+  delegate_to: "{{ _builder_host }}"
+
+# Push each source to osbuild-composer. This is idempotent; re-pushing a source
+# with the same id overwrites the previous definition.
+- name: Push build sources to osbuild-composer
+  ansible.builtin.command:
+    cmd: "composer-cli sources add {{ blueprint_dir }}/source-{{ item.id }}.toml"
+  loop: "{{ _filtered_build_sources }}"
+  loop_control:
+    label: "{{ item.id }}"
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"

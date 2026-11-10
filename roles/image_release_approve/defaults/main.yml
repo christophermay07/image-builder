@@ -1,0 +1,12 @@
+---
+## AWS credentials (defined in group_vars/cloud_aws.yml)
+# Empty overrides use the assigned builder's environment or instance role.
+aws_build_access_key_id: ""
+aws_build_secret_access_key: ""
+aws_build_session_token: ""
+
+## Required context
+# _builder_host, image_build_id, build_timestamp, cloud_target, cloud_image_result, image_validation_result.
+# os_family, os_version, build_method, and profile are provenance added to published_image.
+# artifactory_upload_result comes from artifactory_upload.
+# release_bundle_name and release_bundle_version come from artifactory_release_bundle.

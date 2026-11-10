@@ -1,0 +1,139 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for windows_ami_validate
+    options:
+      ## Secrets
+      packer_winrm_password:
+        type: str
+        description: Effective guest administrator password; defaults to the injected WinRM secret.
+        required: true
+        no_log: true
+      winrm_admin_password:
+        type: str
+        description: Injected secret used by the default Packer WinRM password alias.
+        no_log: true
+      aws_build_access_key_id:
+        type: str
+        description: Optional explicit AWS access key ID for build operations.
+        no_log: true
+      aws_build_secret_access_key:
+        type: str
+        description: Optional explicit AWS secret access key for build operations.
+        no_log: true
+      aws_build_session_token:
+        type: str
+        description: Optional explicit AWS session token for build operations.
+        no_log: true
+
+      ## Inherited and derived values
+      image_build_id:
+        type: str
+        description: Unique current attempt identity.
+        required: true
+      build_timestamp:
+        type: str
+        description: Frozen build timestamp for validation evidence.
+        required: true
+      cloud_image_result:
+        type: dict
+        description: Native image identity produced by the current build.
+        required: true
+      _builder_host:
+        type: str
+        description: Assigned Linux builder hostname from the build role.
+        required: true
+      builder_ansible_workspace:
+        type: str
+        description: Private workspace produced by builder_ansible_prepare.
+        required: true
+      builder_ansible_bin:
+        type: str
+        description: Executable directory in the isolated Ansible environment.
+        required: true
+      builder_ansible_environment:
+        type: dict
+        description: Environment passed to isolated builder-side Ansible commands.
+        required: true
+      windows_ami_id:
+        type: str
+        description: AMI identifier produced by windows_image_build.
+        required: true
+      vm_name:
+        type: str
+        description: Image target name; normally derived from inventory_hostname.
+      validate_instance_id:
+        type: str
+        description: Validation instance identifier normally returned by AWS; used for termination.
+      validate_instance_ip:
+        type: str
+        description: Validation guest address normally returned by AWS.
+
+      ## Validation guest
+      validate_instance_type:
+        type: str
+        description: Instance type for the post-AMI validation guest.
+      validate_winrm_port:
+        type: int
+        description: WinRM port on the validation guest.
+      validate_winrm_timeout:
+        type: int
+        description: Seconds to wait for WinRM on the validation guest.
+
+      ## STIG and compliance
+      validate_powerstig_stig_id:
+        type: str
+        description: Version-specific STIG checklist for post-AMI scanning.
+        required: true
+      validate_powerstig_version:
+        type: str
+        description: PowerSTIG module version for post-AMI scanning.
+      validate_powerstig_manifest_hash:
+        type: str
+        description: Expected module manifest SHA-256; empty skips verification.
+      validate_nuget_provider_version:
+        type: str
+        description: NuGet provider version for post-AMI scanning.
+      validate_generate_html:
+        type: bool
+        description: Generate the post-AMI HTML compliance report.
+      validate_compliance_output_dir:
+        type: str
+        description: Compliance results directory inside the validation guest.
+      validate_result_prefix:
+        type: str
+        description: Filename prefix for downloaded post-AMI scan results.
+
+      ## Compliance alias sources
+      powerstig_stig_id:
+        type: str
+        description: Source checklist for validate_powerstig_stig_id.
+      powerstig_version:
+        type: str
+        description: Source module version for validate_powerstig_version.
+      powerstig_manifest_hash:
+        type: str
+        description: Source manifest SHA-256 for validate_powerstig_manifest_hash.
+      nuget_provider_version:
+        type: str
+        description: Source provider version for validate_nuget_provider_version.
+
+      ## Working and output directories
+      builder_work_dir:
+        type: str
+        description: Base directory for builder workspaces and artifacts.
+      report_output_dir:
+        type: str
+        description: Builder directory containing compliance reports and build metadata.
+
+      ## AWS settings
+      aws_region:
+        type: str
+        description: AWS region where the role performs its source image operations.
+      packer_subnet_id:
+        type: str
+        description: Optional AWS subnet for the validation guest, shared with the Packer build.
+      validate_security_group:
+        type: str
+        description: Optional security group for the validation guest.

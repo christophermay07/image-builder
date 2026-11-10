@@ -1,0 +1,206 @@
+---
+# Builder-side Ansible preparation: create a private runtime, stage roles, and write resolved configuration payloads.
+#
+# Called through include_role by build roles against phantom hosts; windows_image_build is the first caller.
+# Filesystem and runtime tasks delegate to the assigned Linux builder. This role does not connect to guests;
+# the caller launches provisioning and validation with the prepared runtime.
+#
+# Key variables:
+#
+#   _builder_host            → set by the calling build role; reused here without choosing another builder
+#   builder_work_dir         → from group_vars/all.yml (parent directory for private build workspaces)
+#   builder_ansible_payloads → selected, resolved non-credential settings supplied through include_role vars
+#
+# The caller also selects project roles, external roles, collections, and supporting Python packages.
+# Python executable and ansible-core version defaults live in this role's defaults/main.yml.
+
+# Role argument validation accepts some convertible types without normalizing the original values.
+# Require native lists and mappings, plus usable runtime settings, before allocating anything on the builder.
+- name: Validate builder handoff inputs
+  ansible.builtin.assert:
+    that:
+      - builder_ansible_project_roles is sequence
+      - builder_ansible_project_roles is not string
+      - builder_ansible_project_roles is not mapping
+      - builder_ansible_project_roles | length > 0
+      - builder_ansible_packages is sequence
+      - builder_ansible_packages is not string
+      - builder_ansible_packages is not mapping
+      - builder_ansible_collections is sequence
+      - builder_ansible_collections is not string
+      - builder_ansible_collections is not mapping
+      - builder_ansible_external_roles is sequence
+      - builder_ansible_external_roles is not string
+      - builder_ansible_external_roles is not mapping
+      - builder_ansible_payloads is mapping
+      - _builder_host is string
+      - _builder_host | trim | length > 0
+      - builder_work_dir is string
+      - builder_work_dir | trim | length > 0
+      - builder_ansible_python is string
+      - builder_ansible_python | trim | length > 0
+      - builder_ansible_core_version is string
+      - builder_ansible_core_version | trim | length > 0
+    fail_msg: >-
+      Supply native project-role and dependency lists, with at least one project role, and a payload mapping.
+      Set _builder_host, builder_work_dir, builder_ansible_python, and builder_ansible_core_version to non-empty strings.
+
+# These names become paths beneath the staged roles directory; reject paths before copying from the checkout.
+- name: Validate project role directory names
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item is match('^[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+    fail_msg: Project roles must be simple directory names within the project roles directory.
+  loop: "{{ builder_ansible_project_roles }}"
+
+- name: Validate payload filenames and values
+  ansible.builtin.assert:
+    that:
+      - item.key is match('^[a-z][a-z0-9_-]*$')
+      - item.value is mapping
+  loop: "{{ builder_ansible_payloads | dict2items }}"
+  no_log: true
+
+# Each attempt gets a unique workspace so simultaneous builds cannot replace one another's runtime or role content.
+# The caller owns cleanup: retain this directory through provisioning and validation, then remove it in an always block.
+- name: Allocate isolated build workspace
+  ansible.builtin.tempfile:
+    state: directory
+    path: "{{ builder_work_dir }}"
+    prefix: ansible-build-
+  register: _builder_workspace
+  delegate_to: "{{ _builder_host }}"
+
+# set_fact keeps these outputs on the phantom host for later roles in the same play, even though the files are on
+# _builder_host. Consumers use builder_ansible_bin and builder_ansible_environment to launch child Ansible processes.
+- name: Record shared paths for provisioning and validation
+  ansible.builtin.set_fact:
+    builder_ansible_workspace: "{{ _builder_workspace.path }}"
+    builder_ansible_bin: "{{ _builder_workspace.path }}/venv/bin"
+    builder_ansible_environment:
+      ANSIBLE_CONFIG: "{{ _builder_workspace.path }}/ansible.cfg"
+      ANSIBLE_ROLES_PATH: "{{ _builder_workspace.path }}/roles"
+      ANSIBLE_COLLECTIONS_PATH: "{{ _builder_workspace.path }}/collections"
+      ANSIBLE_COLLECTIONS_SCAN_SYS_PATH: "false"
+      ANSIBLE_LOCAL_TEMP: "{{ _builder_workspace.path }}/tmp"
+      ANSIBLE_BECOME: "false"
+
+- name: Create workspace directories
+  ansible.builtin.file:
+    path: "{{ builder_ansible_workspace }}/{{ item }}"
+    state: directory
+    mode: "0700"
+  loop: [roles, collections, tmp]
+  delegate_to: "{{ _builder_host }}"
+
+# The config and exported environment select workspace content and disable system collection discovery.
+# Child processes default to no privilege escalation; guest playbooks choose their own escalation policy.
+- name: Write controlled Ansible configuration
+  ansible.builtin.template:
+    src: ansible.cfg.j2
+    dest: "{{ builder_ansible_workspace }}/ansible.cfg"
+    mode: "0600"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Create isolated Python environment
+  ansible.builtin.command:
+    argv: ["{{ builder_ansible_python }}", -m, venv, "{{ builder_ansible_workspace }}/venv"]
+    creates: "{{ builder_ansible_bin }}/python"
+  delegate_to: "{{ _builder_host }}"
+
+# Install into this build's venv rather than changing the builder's shared Python environment.
+# The caller supplies exact package pins; pip still resolves transitive Python dependencies.
+- name: Install pinned Ansible and supporting packages
+  ansible.builtin.pip:
+    name: "{{ ['ansible-core==' ~ builder_ansible_core_version] + builder_ansible_packages }}"
+    executable: "{{ builder_ansible_bin }}/pip"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Write dependency requirements
+  ansible.builtin.copy:
+    content: >-
+      {{ {'collections': builder_ansible_collections, 'roles': builder_ansible_external_roles} | to_nice_yaml }}
+    dest: "{{ builder_ansible_workspace }}/requirements.yml"
+    mode: "0600"
+  delegate_to: "{{ _builder_host }}"
+
+# Galaxy runs with --no-deps for both collections and roles. The caller must list all transitive dependencies
+# explicitly in the requirements; version pins select releases but do not verify artifact integrity.
+- name: Install isolated collections
+  ansible.builtin.command:
+    argv:
+      - "{{ builder_ansible_bin }}/ansible-galaxy"
+      - collection
+      - install
+      - -r
+      - "{{ builder_ansible_workspace }}/requirements.yml"
+      - --no-deps
+      - -p
+      - "{{ builder_ansible_workspace }}/collections"
+  environment: "{{ builder_ansible_environment }}"
+  when: builder_ansible_collections | length > 0
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+- name: Install pinned external roles
+  ansible.builtin.command:
+    argv:
+      - "{{ builder_ansible_bin }}/ansible-galaxy"
+      - role
+      - install
+      - -r
+      - "{{ builder_ansible_workspace }}/requirements.yml"
+      - --no-deps
+      - -p
+      - "{{ builder_ansible_workspace }}/roles"
+  environment: "{{ builder_ansible_environment }}"
+  when: builder_ansible_external_roles | length > 0
+  changed_when: true
+  delegate_to: "{{ _builder_host }}"
+
+# copy reads src on the controller (the AAP execution environment or CLI checkout) and writes to the delegated builder.
+# This hands the child Ansible process the same project role content used by the outer build.
+- name: Stage project roles from the controlling checkout
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../roles/{{ item }}/"
+    dest: "{{ builder_ansible_workspace }}/roles/{{ item }}/"
+    mode: "0700"
+    directory_mode: "0700"
+  loop: "{{ builder_ansible_project_roles }}"
+  delegate_to: "{{ _builder_host }}"
+
+# Check both copied project roles and installed external role aliases before the caller starts a guest.
+- name: Verify required role entry points are present
+  ansible.builtin.stat:
+    path: "{{ builder_ansible_workspace }}/roles/{{ item }}/tasks/main.yml"
+  loop: "{{ builder_ansible_project_roles + (builder_ansible_external_roles | map(attribute='name') | list) }}"
+  register: _builder_role_files
+  delegate_to: "{{ _builder_host }}"
+
+- name: Fail early for missing role content
+  ansible.builtin.assert:
+    that: item.stat.exists
+    fail_msg: "Missing staged role entry point: {{ item.item }}"
+  loop: "{{ _builder_role_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+# Child Ansible processes do not inherit the outer inventory's resolved variables. Serialize selected mappings as YAML
+# to preserve lists, dictionaries, and booleans across that boundary. Callers must keep credentials out of these files;
+# restrictive permissions and no_log limit exposure but do not make payloads a credential transport.
+- name: Write resolved configuration payloads
+  ansible.builtin.copy:
+    content: "{{ item.value | to_nice_yaml }}"
+    dest: "{{ builder_ansible_workspace }}/{{ item.key }}.yml"
+    mode: "0600"
+  loop: "{{ builder_ansible_payloads | dict2items }}"
+  no_log: true
+  delegate_to: "{{ _builder_host }}"
+
+# Catch incompatible installed Python requirements here; callers separately syntax-check their staged playbooks.
+- name: Check installed Python dependency compatibility
+  ansible.builtin.command:
+    argv: ["{{ builder_ansible_bin }}/python", -m, pip, check]
+  changed_when: false
+  delegate_to: "{{ _builder_host }}"

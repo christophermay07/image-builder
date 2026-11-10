@@ -1,10 +1,38 @@
 ---
-# Windows STIG hardening via MindPoint Group collection.
-# This role is called by the Packer Ansible provisioner during the Windows image build, runs directly on the instance.
+# Windows STIG hardening via the Ansible Lockdown standalone role.
+# Called by the generated <vm_name>-harden.yml, not directly by the outer build_windows.yml.
+# Packer's "ansible" provisioner launches Ansible on the Linux builder, where this role's files must be available.
+# Windows modules execute on the temporary Windows guest over WinRM; the guest does not run Ansible itself.
+# The inner run has its own inventory/variables. See README.md for the call chain and pass-through prerequisites.
 #
 # The tasks below are provider-agnostic (feature install, registry config) except for the final include_role, which is
-# MindPoint-specific. To swap providers, replace or modify that task. See defaults/main.yml for the full list of
-# MindPoint coupling points.
+# Ansible Lockdown-specific. To swap providers, replace or modify that task. See README.md for the coupling points.
+
+- name: Require selected Windows STIG provider
+  ansible.builtin.assert:
+    that:
+      - windows_stig_role is string
+      - windows_stig_role | length > 0
+    fail_msg: Supply the version-specific Windows STIG selection explicitly; no release fallback is provided.
+
+- name: Validate Windows profile collections
+  ansible.builtin.assert:
+    that:
+      - profile_windows_extra_features is sequence
+      - profile_windows_extra_features is not string
+      - profile_windows_extra_features is not mapping
+      - profile_windows_registry_entries is mapping
+    fail_msg: Supply a native feature list and a registry entry mapping.
+
+- name: Validate registry entry contents
+  ansible.builtin.assert:
+    that:
+      - item.value is mapping
+      - item.value.path is string and item.value.path | trim | length > 0
+      - item.value.name is string
+      - item.value.data is defined
+  loop: "{{ profile_windows_registry_entries | dict2items }}"
+  no_log: true
 
 - name: Install profile-specific Windows features
   ansible.windows.win_feature:
@@ -15,17 +43,19 @@
 
 - name: Apply profile-specific Windows configuration
   ansible.windows.win_regedit:
-    path: "{{ item.path }}"
-    name: "{{ item.name }}"
-    data: "{{ item.data }}"
-    type: "{{ item.type | default('string') }}"
+    path: "{{ reg_entry.value.path }}"
+    name: "{{ reg_entry.value.name }}"
+    data: "{{ reg_entry.value.data }}"
+    type: "{{ reg_entry.value.type | default('string') }}"
   loop: "{{ profile_windows_registry_entries | dict2items | default([]) }}"
+  loop_control:
+    loop_var: reg_entry
   when: profile_windows_registry_entries | length > 0
 
-## MindPoint-specific task
-# This include_role delegates all STIG remediation to MindPoint Group.
-# Rule overrides (win2022stig_rule_XXXXXX_enabled) live in defaults/main.yml or group_vars and are picked up from the
-# variable namespace automatically (no `vars:` block needed).
-- name: Apply Windows Server 2022 STIG
+## Ansible Lockdown-specific task
+# This include_role invokes the STIG provider within the builder-side Ansible process.
+# Rule overrides must be present in this inner run's variable namespace (no `vars:` block needed on include_role).
+# Outer inventory variables are not automatically forwarded through Packer.
+- name: Apply selected Windows STIG
   ansible.builtin.include_role:
     name: "{{ windows_stig_role }}"

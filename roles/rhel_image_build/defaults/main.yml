@@ -8,6 +8,10 @@
 # Osbuild internals, operational tuning, and runtime-computed values.
 # Override any of these via extra-vars when needed.
 
+# Standard OS path set by the scap-security-guide RPM. Only changes if the package layout changes.
+# Shared with rhel_compliance_scan (which defines the same default).
+stig_content_dir: /usr/share/xml/scap/ssg/content
+
 # Only supported type today is qcow2; changing it requires code changes in downstream roles.
 compose_output_type: qcow2
 
@@ -28,10 +32,34 @@ image_version: "{{ now(utc=true).strftime('%Y.%m.%d') }}{{ image_version_suffix 
 # Per-profile overrides go in profile_<name>.yml.
 
 profile_linux_packages: []
+profile_linux_enabled_services: []
+profile_linux_disabled_services: []
 blueprint_filesystem_layout: {}
 
-## Cross-role, RHEL targets (defined in group_vars/rhel*_targets.yml)
-# STIG tailoring rules; also read by image_export (build-metadata.json).
+# selinux_mode - per-profile, role-only (profile_*.yml); optional, inline fallback is enforcing; e.g., "permissive"
+
+## Cross-role, RHEL targets (defined in group_vars/rhel_targets.yml)
+# Optional sources for composed repo entries; unused when selected repositories do not reference them.
+# Supply a usable mirror location and signing key URL when repository definitions reference these settings.
+yum_repo_base_url: ""
+yum_repo_gpgkey: ""  # set in group_vars/rhel_targets.yml
+
+## Cross-role, profile + cloud composition (defined in group_vars/all_profiles/linux.yml)
+# Composed via _base + _profile_specific + _cloud pattern.
+
+# Yum repositories rendered as [[customizations.repositories]] in the blueprint.
+# These end up in /etc/yum.repos.d/ in the final image.
+blueprint_yum_repos: []
+
+# Build-time yum sources pushed to osbuild-composer before the compose starts.
+# These repos are available during the build for installing packages but are NOT baked into the final image.
+build_yum_sources: []
+
+## Cross-role, RHEL targets (defined in group_vars/rhel_targets.yml + rhel_*_*.yml)
+# Shared with rhel_compliance_scan (which defines the same defaults).
+stig_profile: "xccdf_org.ssgproject.content_profile_stig"
+
+# STIG tailoring rules; also recorded by rhel_artifacts_prepare in build metadata.
 # Empty list means "use the base STIG profile as-is."
 
 stig_unselected_rules: []
@@ -49,21 +77,29 @@ builder_work_dir: /var/lib/image-builder
 blueprint_dir: "{{ builder_work_dir }}/blueprints"
 image_output_dir: "{{ builder_work_dir }}/output"
 
-## Cross-role, osbuild method (defined in group_vars/method_osbuild.yml)
-# Used by this role and cloud_init_prep.
+## Cross-role, per cloud provider (defined in group_vars/cloud_*.yml)
+# Used by this role when rendering cloud-init configuration in the blueprint.
+
+# chrony_config - per-cloud, role-only (cloud_*.yml); optional, absence skips chrony file injection
+# Example: "server 169.254.169.123"
 
 cloud_init_datasources:
-  - Ec2
-  - Azure
-  - GCE
   - NoCloud
 
-## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
-# These *must* be provided by the inventory (or set by earlier roles).
-# The role fails with an UndefinedError if they are missing.
+## Role-only, optional cloud-init configuration
+# Extra cloud-init files baked into /etc/cloud/cloud.cfg.d/ during composition.
+# Each entry supplies filename (a .cfg basename) and content (the complete YAML configuration text).
+# Override in profile group_vars, host_vars, or extra-vars; an empty list adds no extra files.
+cloud_init_extra_configs: []
+
+## REQUIRED FROM INVENTORY (no sensible default)
+# These *must* be provided by the inventory.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
 #
-# blueprint_template    - per-OS-family, role-only       (rhel*_targets.yml)    e.g. "rhel-blueprint.toml.j2"
-# os_version            - per-version, cross-role        (rhel_*_*.yml)         e.g. "9.4"
-# profile               - per-profile, cross-role        (profile_*.yml)        e.g. "base"
-# stig_datastream       - per-OS-family, cross-role      (rhel*_targets.yml)    e.g. "ssg-rhel9-ds.xml"
-# stig_profile          - per-OS-family, cross-role      (rhel*_targets.yml)    e.g. "xccdf_...content_profile_stig"
+# blueprint_template - per-OS-family, role-only       (rhel_targets.yml)     e.g., "rhel-blueprint.toml.j2"
+# os_version         - per-version, cross-role        (rhel_*_*.yml)         e.g., "9.4"
+# profile            - per-profile, cross-role        (profile_*.yml)        e.g., "base"
+# stig_datastream    - per-OS-family, cross-role      (rhel_targets.yml)     derived from os_major
+# builder_group      - derived builder selection (all.yml); e.g., "builders_osbuild"
+# os_major           - required for non-empty build_yum_sources (rhel_targets.yml); e.g., "9"

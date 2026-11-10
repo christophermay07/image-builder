@@ -1,0 +1,69 @@
+---
+# Public role input contract; defaults remain in defaults/main.yml.
+argument_specs:
+  main:
+    short_description: Approve a published image for distribution
+    options:
+      aws_build_access_key_id:
+        type: str
+        description: Optional explicit AWS credential override for provider approval.
+        no_log: true
+      aws_build_secret_access_key:
+        type: str
+        description: Optional explicit AWS credential override for provider approval.
+        no_log: true
+      aws_build_session_token:
+        type: str
+        description: Optional explicit AWS credential override for provider approval.
+        no_log: true
+      _builder_host:
+        type: str
+        description: Assigned builder for publication operations.
+        required: true
+      image_build_id:
+        type: str
+        description: Unique build attempt identity.
+        required: true
+      build_timestamp:
+        type: str
+        description: Frozen timestamp of this attempt.
+        required: true
+      cloud_image_result:
+        type: dict
+        description: Native image identity produced by this attempt.
+        required: true
+      image_validation_result:
+        type: dict
+        description: Successful native-image validation and cleanup evidence.
+        required: true
+      cloud_target:
+        type: str
+        description: Target cloud matching the inventory cloud group.
+        required: true
+        choices: [aws, azure, gcp]
+      os_family:
+        type: str
+        description: OS family recorded as provenance.
+        required: true
+      os_version:
+        type: str
+        description: OS release recorded as provenance.
+        required: true
+      build_method:
+        type: str
+        description: Build method recorded as provenance.
+        required: true
+      profile:
+        type: str
+        description: Image profile recorded as provenance.
+        required: true
+      release_bundle_name:
+        type: str
+        description: Release Bundle identity set after successful publication.
+      release_bundle_version:
+        type: str
+        description: Release Bundle identity set after successful publication.
+      artifactory_upload_result:
+        type: dict
+        description: Receipt from successful artifact uploads for this target and timestamp.
+        required: true

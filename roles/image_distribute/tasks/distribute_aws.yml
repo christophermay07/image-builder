@@ -2,36 +2,58 @@
 # AWS distribution: copy AMIs across regions and share with target accounts.
 # Uses aws_distribute_* credentials (distribute function). Override to split from build/cleanup.
 
-# RHEL sets aws_ami_id; Windows sets windows_ami_id. Nested default falls through to whichever exists.
-- name: Determine source AMI ID
-  ansible.builtin.set_fact:
-    _source_ami: "{{ aws_ami_id | default(windows_ami_id | default('')) }}"
+# Every producer supplies a verified published image; source selection never falls back to OS-specific facts.
+- name: Require AWS branch inputs
+  ansible.builtin.assert:
+    that:
+      - _builder_host is string and _builder_host | trim | length > 0
+      - profile is string and profile | trim | length > 0
+      - os_version is string and os_version | trim | length > 0
+      - aws_region is string and aws_region | trim | length > 0
+      - ami_target_regions is sequence and ami_target_regions is not string and ami_target_regions is not mapping
+      - ami_target_accounts is sequence and ami_target_accounts is not string and ami_target_accounts is not mapping
+      - ami_base_tags is defined
+      - ami_base_tags is mapping
 
-- name: Fail if no AMI ID available
-  ansible.builtin.fail:
-    msg: "No AMI ID found for {{ vm_name }}. Build may have failed."
-  when: _source_ami | length == 0
+- name: Validate distribution region names
+  ansible.builtin.assert:
+    that:
+      - item is string and item | trim | length > 0
+    fail_msg: Distribution regions must be non-empty strings.
+  loop: "{{ ami_target_regions }}"
+
+- name: Validate distribution account IDs
+  ansible.builtin.assert:
+    that:
+      - item is string and item is match('^[0-9]{12}$')
+    fail_msg: Distribution account IDs must be quoted 12-digit strings.
+  loop: "{{ ami_target_accounts }}"
+
+- name: Verify AWS publication approval
+  ansible.builtin.include_tasks: verify_aws.yml
+
+- name: Select approved source AMI
+  ansible.builtin.set_fact:
+    _source_ami: "{{ _published_image.image_id }}"
 
 - name: Copy AMI to target regions
   amazon.aws.ec2_ami_copy:
     source_region: "{{ aws_region }}"
     source_image_id: "{{ _source_ami }}"
-    region: "{{ item }}"
+    region: "{{ target_region }}"
     name: "{{ vm_name }}"
     description: "{{ vm_name }} - {{ profile }} - {{ os_version }}"
-    tags:
-      Name: "{{ vm_name }}"
-      os_family: "{{ os_family }}"
-      os_version: "{{ os_version }}"
-      profile: "{{ profile }}"
-      stig_applied: "true"
-      source_region: "{{ aws_region }}"
-      source_ami: "{{ _source_ami }}"
+    tags: >-
+      {{ ami_base_tags | combine({
+         'source_region': aws_region,
+         'source_ami': _source_ami}) }}
     wait: true
     access_key: "{{ aws_distribute_access_key_id | default(omit, true) }}"
     secret_key: "{{ aws_distribute_secret_access_key | default(omit, true) }}"
     session_token: "{{ aws_distribute_session_token | default(omit, true) }}"
   loop: "{{ ami_target_regions }}"
+  loop_control:
+    loop_var: target_region
   register: ami_copies
   delegate_to: "{{ _builder_host }}"
   when: ami_target_regions | length > 0
@@ -51,8 +73,8 @@
 
 - name: Share copied AMIs with target accounts (other regions)
   amazon.aws.ec2_ami:
-    image_id: "{{ item.image_id }}"
-    region: "{{ item.item }}"
+    image_id: "{{ ami_copy.image_id }}"
+    region: "{{ ami_copy.target_region }}"
     launch_permissions:
       user_ids: "{{ ami_target_accounts }}"
     state: present
@@ -61,7 +83,8 @@
     session_token: "{{ aws_distribute_session_token | default(omit, true) }}"
   loop: "{{ ami_copies.results | default([]) }}"
   loop_control:
-    label: "{{ item.item | default('N/A') }}"
+    loop_var: ami_copy
+    label: "{{ ami_copy.target_region | default('N/A') }}"
   when:
     - ami_target_accounts | length > 0
     - ami_copies.results is defined

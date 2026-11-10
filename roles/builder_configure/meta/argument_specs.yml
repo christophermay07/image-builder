@@ -1,0 +1,53 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for builder_configure
+    options:
+      ## Builder packages
+      builder_packages:
+        type: list
+        description: Operating system packages installed for the selected builder type.
+        elements: str
+      validation_packages:
+        type: list
+        description: Operating system packages providing image validation tools.
+        elements: str
+
+      ## Provisioning dependencies
+      builder_pip_packages:
+        type: list
+        description: Python packages retained for builder-side provisioning consumers.
+        elements: str
+      builder_collections:
+        type: list
+        description: Collection requirements retained for builder-side provisioning consumers.
+        elements: raw
+
+      ## Packer installation
+      packer_binary:
+        type: str
+        description: Path to the Packer executable on the builder.
+      packer_version:
+        type: str
+        description: Packer version to install on Packer builders.
+      packer_download_url:
+        type: str
+        description: Download URL for the Packer installation archive.
+      packer_checksum:
+        type: str
+        description: Expected checksum of the Packer installation archive.
+
+      ## Working and output directories
+      builder_work_dir:
+        type: str
+        description: Base directory for builder workspaces and artifacts.
+      blueprint_dir:
+        type: str
+        description: Builder directory for rendered blueprints and repository source files.
+      image_output_dir:
+        type: str
+        description: Builder directory containing composed images and converted artifacts.
+      report_output_dir:
+        type: str
+        description: Builder directory containing compliance reports and build metadata.

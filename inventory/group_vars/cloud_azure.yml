@@ -1,0 +1,64 @@
+---
+# Azure cloud-specific settings (Dimension 5)
+#
+# Variables here apply to every phantom host that targets Azure.
+# Roles dispatch on group membership ("'cloud_azure' in group_names").
+#
+# TODO: Azure native registration, smoke testing, approval, and distribution are not implemented.
+# Complete cloud_convert, cloud_validate, image_release_approve, and image_distribute provider handlers.
+# The common RHEL workflow blocks publication until native image registration and SSH validation succeed.
+
+cloud_target: azure
+
+# cloud-init datasource ordering for Azure images.
+# Azure is checked first; NoCloud is the fallback for local dev/test.
+cloud_init_datasources:
+  - Azure
+  - NoCloud
+
+# Chrony NTP configuration for Azure.
+# Azure exposes a PTP hardware clock (/dev/ptp_hyperv) backed by the host's time source. This is more accurate than NTP
+# and avoids network dependency. The refclock line uses PHC (PTP Hardware Clock) mode.
+# https://learn.microsoft.com/en-us/azure/virtual-machines/linux/time-sync
+chrony_config: |
+  refclock PHC /dev/ptp_hyperv poll 3 dpoll -2 offset 0
+  makestep 1.0 -1
+  rtcsync
+  logdir /var/log/chrony
+
+## Azure-specific yum repos (added to build_yum_sources and blueprint_yum_repos for Azure targets only)
+_cloud_build_yum_sources:
+  - id: "packages-microsoft-com-prod"
+    name: "Microsoft Packages for RHEL {{ os_major }}"
+    baseurl: "https://{{ yum_repo_base_url }}/redhat{{ os_major }}/packages-microsoft-com-prod"
+    gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-packages-microsoft-com-prod"
+    gpgcheck: 1
+    enabled: 0
+
+## Image conversion
+
+# TODO: Azure storage settings for VHD upload
+# azure_subscription_id: ""
+# azure_resource_group: ""
+# azure_storage_account: ""
+# azure_storage_container: ""
+
+## Image validation (cloud_validate role)
+
+# TODO: Define the Azure validation guest network, instance size, and login inputs when implementing its handler.
+# The AWS builder must reach the temporary Azure guest over SSH through the configured network path.
+# Credentials and native image settings belong here; do not add provider branches to build_rhel.yml.
+
+## Image distribution
+
+# TODO: Azure Compute Gallery settings for image sharing
+# azure_gallery_name: ""
+# azure_gallery_resource_group: ""
+# azure_target_subscriptions: []
+
+## Azure credentials for image operations
+#
+# Leave these empty; AAP injects them as extra-vars or env vars.
+# azure_client_id: ""
+# azure_client_secret: ""
+# azure_tenant_id: ""

@@ -12,9 +12,14 @@
 builder_work_dir: /var/lib/image-builder
 image_output_dir: "{{ builder_work_dir }}/output"
 
-## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
-# These *must* be provided by the inventory (or set by earlier roles).
-# The role fails with an UndefinedError if they are missing.
+## REQUIRED FROM INVENTORY (no sensible default)
+# These *must* be provided by the inventory.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
 #
-# os_major         - per-OS-family, role-only                       (rhel*_targets.yml)    e.g. "8"
-# _builder_host    - set by rhel_image_build; delegate_to target                           e.g., "osbuild-builder-01"
+# os_version  - per-version, cross-role     (rhel_*_*.yml)         e.g., "8.10"
+
+## Upstream facts (set by earlier plays or roles)
+# Registered or set_fact variables from earlier stages.
+#
+# _builder_host    - builder hostname (set_fact from build role)

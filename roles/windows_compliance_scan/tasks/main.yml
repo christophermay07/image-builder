@@ -8,7 +8,24 @@
 # registered and produces the authoritative compliance evidence.
 #
 # Output files are prefixed "pre-seal-" to distinguish them from the
-# post-AMI scan results. See ADR-IF-031.
+# post-AMI scan results. See ADR-IB-031.
+
+- name: Validate PowerSTIG scan settings
+  ansible.builtin.assert:
+    that:
+      - powerstig_version is string and powerstig_version | trim | length > 0
+      - nuget_provider_version is string and nuget_provider_version | trim | length > 0
+      - compliance_output_dir is string and compliance_output_dir | trim | length > 0
+      - >-
+        powerstig_manifest_hash is string and (powerstig_manifest_hash | length == 0 or powerstig_manifest_hash is match('^[A-Fa-f0-9]{64}$'))
+    fail_msg: Supply non-empty module versions and output directory, with an empty or 64-digit SHA-256 manifest hash.
+
+- name: Require selected Windows STIG checklist
+  ansible.builtin.assert:
+    that:
+      - powerstig_stig_id is string
+      - powerstig_stig_id | length > 0
+    fail_msg: Supply the version-specific Windows STIG selection explicitly; no release fallback is provided.
 
 - name: Create compliance output directory
   ansible.windows.win_file:
@@ -18,12 +35,26 @@
 - name: Install NuGet package provider
   ansible.windows.win_shell: |
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
+    Install-PackageProvider -Name NuGet -RequiredVersion '{{ nuget_provider_version }}' -Force
 
 - name: Install PowerSTIG module
   ansible.windows.win_shell: |
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Install-Module -Name PowerSTIG -RequiredVersion '{{ powerstig_version }}' -Force -SkipPublisherCheck
+
+- name: Verify PowerSTIG module integrity
+  ansible.windows.win_shell: |
+    $modulePath = (Get-Module -ListAvailable -Name PowerSTIG |
+                   Where-Object { $_.Version -eq '{{ powerstig_version }}' }).ModuleBase
+    $manifest = Join-Path $modulePath 'PowerSTIG.psd1'
+    $hash = (Get-FileHash -Path $manifest -Algorithm SHA256).Hash
+    if ($hash -ne '{{ powerstig_manifest_hash }}') {
+        throw "PowerSTIG manifest hash mismatch: expected {{ powerstig_manifest_hash }}, got $hash"
+    }
+    Write-Output "PowerSTIG {{ powerstig_version }} manifest hash verified: $hash"
+  register: powerstig_verify
+  changed_when: false
+  when: powerstig_manifest_hash | default('') | length > 0
 
 - name: Run PowerSTIG audit and export results
   ansible.windows.win_shell: |

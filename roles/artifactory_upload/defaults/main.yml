@@ -1,0 +1,10 @@
+---
+## Shared Artifactory settings (defined in group_vars/all.yml)
+artifactory_base_url: "https://artifactory.example.com"
+artifactory_image_repo: "libs-release-local/images"
+
+## Required from the caller
+# _builder_host and build_timestamp identify the source builder and remote build prefix.
+# artifactory_upload_token is the shared image/report/metadata upload credential, injected or supplied by inventory.
+# artifactory_upload_artifacts is a non-empty list of {src: absolute builder-local path, name: remote filename}.
+# Output: artifactory_upload_result is recorded only after every upload succeeds.

@@ -1,0 +1,25 @@
+---
+# Ubuntu family settings (all Ubuntu LTS versions share these)
+os_family: ubuntu
+
+# Ubuntu follows the Windows split pattern: "family" = all Ubuntu LTS
+# versions, "version" = the LTS release (22.04, 24.04, 26.04). Point
+# releases (e.g. 22.04.1) are ISO refresh snapshots, not distinct base
+# images.
+
+# Packer connection settings; Ubuntu uses SSH (same as RHEL, unlike Windows).
+# These exist because of the build method (Packer) but their values are
+# determined by the OS family, so they live here rather than in
+# method_packer.yml. See README "Where Do Variables Go?"
+packer_instance_type: "m5.xlarge"
+packer_communicator: "ssh"
+
+# TODO: STIG/CIS profile settings for Ubuntu
+# Ubuntu uses CIS benchmarks rather than DISA STIGs. Populate once the
+# compliance tooling decision is made.
+# stig_profile: ""
+# stig_datastream: ""
+
+# TODO: Ubuntu hardening role and compliance scan tooling
+# Options include OpenSCAP with ubuntu-scap-security-guide, or
+# Canonical's USG (Ubuntu Security Guide).

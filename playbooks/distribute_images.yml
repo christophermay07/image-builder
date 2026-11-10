@@ -1,6 +1,6 @@
 ---
 # Distribute finished images to target regions and accounts per cloud provider. Targets all vm_targets; the role
-# dispatches per cloud_targets.
+# dispatches based on cloud group membership.
 #
 # Currently implemented: AWS (AMI copy + account sharing). Future: Azure Compute Gallery, GCP image sharing.
 - name: Distribute images

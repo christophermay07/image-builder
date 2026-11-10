@@ -1,0 +1,60 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for image_distribute
+    options:
+      ## Secrets
+      aws_distribute_access_key_id:
+        type: str
+        description: Optional explicit AWS access key ID for distribute operations.
+        no_log: true
+      aws_distribute_secret_access_key:
+        type: str
+        description: Optional explicit AWS secret access key for distribute operations.
+        no_log: true
+      aws_distribute_session_token:
+        type: str
+        description: Optional explicit AWS session token for distribute operations.
+        no_log: true
+
+      ## Inherited and derived values
+      published_image:
+        type: dict
+        description: Approved native-image record produced in the current process, independent of OS and build method.
+      _builder_host:
+        type: str
+        description: Assigned Linux builder hostname from the build role.
+      vm_name:
+        type: str
+        description: Image target name; normally derived from inventory_hostname.
+
+      ## Build target identity
+      os_family:
+        type: str
+        description: Operating system family selected by the target inventory.
+      os_version:
+        type: str
+        description: Operating system release selected by the target inventory.
+      profile:
+        type: str
+        description: Inventory profile selecting image packages, services, and customization.
+      cloud_target:
+        type: str
+        description: Cloud provider selected by the target inventory.
+
+      ## AWS distribution
+      aws_region:
+        type: str
+        description: AWS region where the role performs its source image operations.
+      ami_target_regions:
+        type: list
+        description: Additional AWS regions to receive copies of the source AMI.
+        elements: str
+      ami_target_accounts:
+        type: list
+        description: AWS account IDs granted launch permission on the source AMI.
+        elements: str
+      ami_base_tags:
+        type: dict
+        description: Tag mapping applied to images created or copied by the pipeline.

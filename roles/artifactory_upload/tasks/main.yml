@@ -1,0 +1,87 @@
+---
+# Transfer files selected by the producer. Image validation and release approval are separate playbook stages.
+- name: Require authenticated upload settings
+  ansible.builtin.assert:
+    that:
+      - artifactory_upload_token is string
+      - artifactory_upload_token | length > 0
+      - artifactory_base_url is string
+      - artifactory_base_url | urlsplit('scheme') in ['http', 'https']
+      - artifactory_base_url | urlsplit('hostname') is not none
+      - artifactory_image_repo is string
+      - artifactory_image_repo.split('/')[0] | length > 0
+      - _builder_host is string
+      - _builder_host | trim | length > 0
+      - build_timestamp is string
+      - build_timestamp | trim | length > 0
+    fail_msg: Supply the builder, build timestamp, Artifactory endpoint/repository, and upload credential.
+  no_log: true
+
+- name: Validate artifact list
+  ansible.builtin.assert:
+    that:
+      - artifactory_upload_artifacts is sequence
+      - artifactory_upload_artifacts is not string
+      - artifactory_upload_artifacts is not mapping
+      - artifactory_upload_artifacts | length > 0
+    fail_msg: Supply a non-empty list of artifacts with builder-local src paths and destination names.
+
+- name: Validate artifact entries
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.src is string
+      - item.src is abs
+      - item.name is string
+      - item.name is match('^[A-Za-z0-9][A-Za-z0-9_.-]*$')
+    fail_msg: Each artifact needs an absolute builder-local src and a filename-safe destination name.
+  loop: "{{ artifactory_upload_artifacts }}"
+  loop_control:
+    label: "{{ item.name | default('invalid artifact') }}"
+
+- name: Require unique destination names
+  ansible.builtin.assert:
+    that:
+      - artifactory_upload_artifacts | map(attribute='name') | unique | length == artifactory_upload_artifacts | length
+    fail_msg: Artifact destination names must be unique within the target's build prefix.
+
+# Preflight the complete list before the first request so a missing later report cannot cause a partial upload.
+- name: Verify all upload sources exist
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+    follow: true
+    get_checksum: false
+  register: _upload_source
+  failed_when: not (_upload_source.stat.isreg | default(false))
+  loop: "{{ artifactory_upload_artifacts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Set Artifactory upload path
+  ansible.builtin.set_fact:
+    artifactory_upload_path: >-
+      {{ artifactory_base_url }}/{{ artifactory_image_repo }}/{{ inventory_hostname }}/{{ build_timestamp }}
+    artifactory_upload_result: {}
+
+- name: Upload producer artifacts to Artifactory
+  ansible.builtin.uri:
+    url: "{{ artifactory_upload_path }}/{{ item.name }}"
+    method: PUT
+    src: "{{ item.src }}"
+    headers:
+      Authorization: "Bearer {{ artifactory_upload_token }}"
+    status_code: [201]
+    remote_src: true
+  loop: "{{ artifactory_upload_artifacts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Record completed artifact upload
+  ansible.builtin.set_fact:
+    artifactory_upload_result:
+      target: "{{ inventory_hostname }}"
+      build_timestamp: "{{ build_timestamp }}"
+      status: uploaded
+      files: "{{ artifactory_upload_artifacts | map(attribute='name') | list }}"

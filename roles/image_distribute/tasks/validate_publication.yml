@@ -1,0 +1,27 @@
+---
+# Included only for a non-empty record, before delegated builder variables are evaluated.
+- name: Validate published image record
+  ansible.builtin.assert:
+    that:
+      - _published_image is mapping
+      - _published_image.target | default('') == inventory_hostname
+      - _published_image.status | default('') == 'passed'
+      - _published_image.publication_status | default('') == 'published'
+      - _published_image.cleanup_status | default('') == 'passed'
+      - _published_image.provider | default('') == cloud_target
+      - ('cloud_' ~ cloud_target) in group_names
+      - _published_image.location | default('') is string
+      - _published_image.location | default('') | length > 0
+      - _published_image.build_id | default('') is match('^[a-z0-9]{32}$')
+      - _published_image.image_id | default('') is string
+      - _published_image.image_id | default('') | length > 0
+      - _published_image.builder_host | default('') is string
+      - _published_image.builder_host | default('') | length > 0
+    fail_msg: Supply the successful publication record emitted by this pipeline's build job.
+
+- name: Restore approved builder context
+  ansible.builtin.set_fact:
+    _builder_host: "{{ _published_image.builder_host }}"
+
+- name: Dispatch approved image distribution
+  ansible.builtin.include_tasks: dispatch.yml

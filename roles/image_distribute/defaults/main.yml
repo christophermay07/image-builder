@@ -4,40 +4,41 @@
 # Every variable the role consumes is listed here so the role is self-documenting.
 # Sections describe where the authoritative definition lives in this project's inventory.
 
-## Cross-role, all hosts (defined in group_vars/all.yml)
+## Cloud dispatch
+# This role dispatches to provider-specific task files based on cloud group
+# membership ("'cloud_aws' in group_names", etc.). Variables below are grouped
+# by provider. Azure and GCP sections will be added when those providers are
+# implemented.
+
+## AWS distribution settings (defined in group_vars/cloud_aws.yml)
 # AMI distribution targets; also used by ami_cleanup.
 
 ami_target_regions: []
-
-## Role-specific, all hosts (defined in group_vars/all.yml)
-# Accounts to share AMIs with; only used by this role.
-
 ami_target_accounts: []
-
-## Cross-role, all hosts (defined in group_vars/all.yml)
-# Shared settings used by multiple roles.
-
 aws_region: us-east-1
 
-## AWS credentials (distribute function)
-# This role performs distribution-phase AWS operations (AMI copy, account sharing). Uses the distribute-scoped
-# credential variables from group_vars/all.yml. To split from build/cleanup, override the aws_distribute_* vars.
+## AWS credentials (distribute function, defined in group_vars/cloud_aws.yml)
+# Optional explicit overrides: empty values are omitted, leaving authentication to the executing process.
+# Authentication is still required; session tokens are needed only for credentials that use them.
+# These AWS operations execute on the assigned builder, not in the outer job runner.
+# Distribute-scoped AWS credentials from cloud_aws.yml. Used only by distribute_aws.yml.
+# To split from build/cleanup credentials, override the aws_distribute_* vars.
 aws_distribute_access_key_id: ""
 aws_distribute_secret_access_key: ""
 aws_distribute_session_token: ""
 
-## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
-# These *must* be provided by the inventory (or set by earlier roles).
-# The role fails with an UndefinedError if they are missing.
+## REQUIRED FROM INVENTORY (no sensible default)
+# These *must* be provided by the inventory.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
 #
-# cloud_targets    - per-profile, cross-role      (profile_*.yml)          e.g. ["aws", "azure"]
-# os_family        - per-OS-family                (rhel*_targets.yml)      e.g. "rhel9"
-# os_version       - per-version, cross-role      (rhel_*_*.yml)           e.g. "9.4"
-# profile          - per-profile, cross-role      (profile_*.yml)          e.g. "base"
+# cloud_target  - per-cloud, cross-role        (cloud_*.yml)            e.g., "aws"
+# os_family     - per-OS-family, cross-role    (rhel_targets.yml)       e.g., "rhel"
+# os_version    - per-version, cross-role      (rhel_*_*.yml)           e.g., "9.4"
+# profile       - per-profile, cross-role      (profile_*.yml)          e.g., "base"
+# ami_base_tags - cross-role, all hosts (all.yml); e.g., {build_pipeline: image-builder}
 
-## Upstream facts (set by earlier plays or roles)
-# Registered or set_fact variables from earlier stages. Tasks use | default() fallbacks.
-#
-# _builder_host    - inventory hostname of the builder (set_fact from earlier play)
-# aws_ami_id       - AMI ID from image upload (| default chain to windows_ami_id)
-# windows_ami_id   - fallback AMI ID for Windows builds
+## Publication input (set by every producer)
+# published_image - per-target approved record from image_build_initialize; no default so AAP artifacts can be restored
+# AAP input uses a distinct image_publication_<target SHA-256> key per target. Missing records skip distribution.
+# _builder_host - restored from the approved publication record before any provider API operations

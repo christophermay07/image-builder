@@ -1,0 +1,9 @@
+---
+# TODO: Mark the registered Azure image as published using its native metadata/labels.
+# TODO: Bind approval to image_validation_result.build_id and the recorded image_id/location.
+# Shared main.yml emits distribution records only after this provider approval step succeeds.
+- name: Stop until Azure publication approval is implemented
+  ansible.builtin.fail:
+    msg: >-
+      TODO: Implement native Azure publication approval metadata in image_release_approve.
+      No Azure distribution record will be emitted until approval succeeds.

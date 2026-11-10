@@ -4,12 +4,12 @@
 # This is the only playbook that directly targets builder EC2 instances in its play header ("hosts: builders").
 # The build playbooks (build_rhel.yml, build_windows.yml) also SSH into builders, but they do so indirectly via
 # delegate_to: "{{ _builder_host }}" from phantom hosts. Here, "builders" is the parent group containing both
-# osbuild_builders and packer_builders (see targets.yml). These are real EC2 instances discovered by aws_ec2.yml,
+# builders_osbuild and builders_packer (see targets.yml). These are real EC2 instances discovered by aws_ec2.yml,
 # NOT phantom hosts. gather_facts is true here because we need OS info from the real machines.
 #
 # The builder_configure role installs different packages depending on which child group the host is in:
-#   osbuild_builders → osbuild-composer, composer-cli, openscap
-#   packer_builders → Packer
+#   builders_osbuild → osbuild-composer, composer-cli, openscap
+#   builders_packer → Packer
 # See roles/builder_configure/tasks/main.yml for the conditional logic.
 #
 # Resilience: individual builder failures are caught by block/rescue. A failed builder is recorded and excluded; the

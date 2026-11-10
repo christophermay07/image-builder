@@ -1,0 +1,8 @@
+---
+# Packer provisioner playbook: pre-seal compliance scan (build-time diagnostic).
+# The post-AMI validation scan runs separately after the AMI is registered.
+- name: Run Windows pre-seal compliance scan
+  hosts: all
+  become: false
+  roles:
+    - role: windows_compliance_scan

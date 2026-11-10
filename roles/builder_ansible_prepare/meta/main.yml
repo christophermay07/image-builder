@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: ""
+  license: ""
+  role_name: builder_ansible_prepare
+  description: "Prepare isolated Ansible runtime, roles, and settings on Linux builders"
+  min_ansible_version: "2.16"
+dependencies: []

@@ -1,16 +1,79 @@
 ---
 # RHEL Image Builder: render blueprint, push to composer, compose, download.
 #
-# Called from build_rhel.yml against phantom hosts. Each phantom host (e.g. "rhel-9.4-base") carries variables from its
-# four inventory groups; this role doesn't need to know which OS version or profile it is; it just uses the composed
+# Called from build_rhel.yml against phantom hosts. Each phantom host (e.g. "rhel-9.4-base-aws") carries variables from
+# its five inventory groups; this role doesn't need to know which OS version or profile it is; it just uses the composed
 # variables. Key variables used here:
 #
-#   builder_group      → derived in group_vars/all.yml as "{{ build_method }}_builders"
-#   blueprint_template → from group_vars/rhel*_targets.yml (OS family dimension)
-#   vm_name            → set from inventory_hostname (the phantom host name, e.g. "rhel-9.4-base")
+#   builder_group      → derived in group_vars/all.yml as "builders_{{ build_method }}"
+#   blueprint_template → from group_vars/rhel_targets.yml (OS family dimension)
+#   vm_name            → set from inventory_hostname (the phantom host name, e.g. "rhel-9.4-base-aws")
 #
-# All tasks delegate to _builder_host, which is a real EC2 instance from the osbuild_builders group (discovered by
+# All tasks delegate to _builder_host, which is a real EC2 instance from the builders_osbuild group (discovered by
 # aws_ec2.yml).
+
+- name: Validate Linux profile collections
+  ansible.builtin.assert:
+    that:
+      - profile_linux_packages is sequence
+      - profile_linux_packages is not string
+      - profile_linux_packages is not mapping
+      - profile_linux_enabled_services is sequence
+      - profile_linux_enabled_services is not string
+      - profile_linux_enabled_services is not mapping
+      - profile_linux_disabled_services is sequence
+      - profile_linux_disabled_services is not string
+      - profile_linux_disabled_services is not mapping
+      - stig_selected_rules is sequence
+      - stig_selected_rules is not string
+      - stig_selected_rules is not mapping
+      - stig_unselected_rules is sequence
+      - stig_unselected_rules is not string
+      - stig_unselected_rules is not mapping
+      - cloud_init_datasources is sequence
+      - cloud_init_datasources is not string
+      - cloud_init_datasources is not mapping
+      - cloud_init_extra_configs is sequence
+      - cloud_init_extra_configs is not string
+      - cloud_init_extra_configs is not mapping
+      - build_yum_sources is sequence
+      - build_yum_sources is not string
+      - build_yum_sources is not mapping
+      - blueprint_yum_repos is sequence
+      - blueprint_yum_repos is not string
+      - blueprint_yum_repos is not mapping
+      - blueprint_filesystem_layout is mapping
+    fail_msg: Supply native profile lists and a filesystem layout mapping.
+
+- name: Validate extra cloud-init file definitions
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.filename is string
+      - item.filename is match('^[^/\\]+[.]cfg$')
+      - item.content is string
+    fail_msg: Each extra cloud-init entry needs a .cfg basename and string content.
+  loop: "{{ cloud_init_extra_configs }}"
+
+- name: Validate yum repository definitions
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.id is string and item.id is match('^[A-Za-z0-9_][A-Za-z0-9_.:-]*$')
+      - item.baseurl is string and item.baseurl | trim | length > 0
+    fail_msg: Repository definitions need a filename-safe ID and a non-empty base URL.
+  loop: "{{ build_yum_sources + blueprint_yum_repos }}"
+
+- name: Validate compose polling and conditional repository inputs
+  ansible.builtin.assert:
+    that:
+      - compose_timeout_retries is integer and compose_timeout_retries > 0
+      - compose_poll_interval is integer and compose_poll_interval > 0
+      - >-
+        (build_yum_sources | length == 0 and
+         blueprint_yum_repos | selectattr('os_major', 'defined') | list | length == 0)
+        or (os_major is defined and os_major is string and os_major | length > 0)
+    fail_msg: Use positive integer polling settings and supply os_major when repositories require version filtering.
 
 # Guard: if start_builders or configure_builders failed for all instances of this builder type, the group will be empty
 # and the round-robin indexing would throw an error. This gives a clear message instead.
@@ -23,10 +86,10 @@
 
 # _builder_host: the single source of truth for which builder this phantom host delegates to.
 #
-# Set ONCE here via round-robin and inherited by every subsequent role in the play (rhel8_fstab_fixup, rhel_hardening,
-# cloud_init_prep, image_export, cloud_convert). Those roles do NOT set _builder_host themselves; they rely on the host
-# fact persisting across include_role calls within the same play. This guarantees that the builder which composed the
-# qcow2 is the same one that hardens, scans, exports, and converts it -- no cross-builder filesystem mismatches.
+# Set ONCE here via round-robin and inherited by every subsequent role in the play (rhel8_fstab_fixup,
+# rhel_compliance_scan, rhel_artifacts_prepare, cloud_convert). Those roles do NOT set _builder_host themselves; they rely
+# on the host fact persisting across include_role calls within the same play. This guarantees that the builder which
+# composed the qcow2 is the same one that hardens, scans, exports, and converts it, avoiding cross-builder mismatches.
 #
 # Round-robin logic: each phantom host's position in the play's host list (ansible_play_hosts_all) is divided modulo
 # the number of builders, spreading work evenly. With a single builder this is a no-op (N % 1 == 0). With 3 builders
@@ -43,6 +106,10 @@
 - name: Set VM name from inventory hostname
   ansible.builtin.set_fact:
     vm_name: "{{ inventory_hostname }}"
+
+- name: Add build-time yum sources to osbuild-composer
+  ansible.builtin.include_tasks: manage_build_sources.yml
+  when: build_yum_sources | default([]) | length > 0
 
 - name: Template blueprint
   ansible.builtin.template:

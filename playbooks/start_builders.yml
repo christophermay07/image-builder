@@ -12,7 +12,7 @@
 #
 # What happens after this:
 #   Once instances are running, the aws_ec2 dynamic inventory plugin (update_on_launch: true in AAP) discovers them and
-#   sorts them into osbuild_builders / packer_builders groups. configure_builders.yml then targets "hosts: builders" to
+#   sorts them into builders_osbuild / builders_packer groups. configure_builders.yml then targets "hosts: builders" to
 #   install tooling.
 #
 # Resilience: individual instances that fail to start or become reachable are logged and excluded. The pipeline
@@ -28,7 +28,7 @@
     # starting) and running (already up).
     - name: Find builder instances by tag
       amazon.aws.ec2_instance_info:
-        region: "{{ aws_region }}"
+        region: "{{ aws_builder_region }}"
         filters: "{{ builder_instance_tags | combine({'instance-state-name': ['stopped', 'running']}) }}"
         register: builder_instances
 
@@ -47,7 +47,7 @@
 
     - name: Start all stopped builder instances
       amazon.aws.ec2_instance:
-        region: "{{ aws_region }}"
+        region: "{{ aws_builder_region }}"
         # Filter to instances whose state is 'stopped', then extract just their IDs.
         instance_ids: >-
           {{ builder_instances.instances
@@ -61,7 +61,7 @@
 
     - name: Wait for all instances to reach running state
       amazon.aws.ec2_instance_info:
-        region: "{{ aws_region }}"
+        region: "{{ aws_builder_region }}"
         filters: "{{ builder_instance_tags | combine({'instance-state-name': 'running'}) }}"
       register: running_check
       until: (running_check.instances | length) >= (builder_instances.instances | length)
@@ -73,8 +73,8 @@
       ansible.builtin.set_fact:
         _running_ids: >-
           {{ running_check.instances | map(attribute='instance_id') | list }}
-        # Start from all discovered builders, pull out their IDs, then drop any ID that appears
-        # in the running set -- whatever's left failed to start.
+        # Start from all discovered builders, pull out their IDs, then drop any ID that appears in the running set;
+        # whatever's left failed to start.
         _failed_instance_ids: >-
           {{ builder_instances.instances
              | map(attribute='instance_id')
@@ -91,25 +91,26 @@
 
     - name: Wait for SSH on each running builder
       ansible.builtin.wait_for:
-        host: "{{ item.private_ip_address }}"
+        host: "{{ instance.private_ip_address }}"
         port: 22
         timeout: 300
       loop: "{{ running_check.instances }}"
       loop_control:
-        label: "{{ item.instance_id }} ({{ item.private_ip_address }})"
+        loop_var: instance
+        label: "{{ instance.instance_id }} ({{ instance.private_ip_address }})"
       register: ssh_results
       ignore_errors: true
 
     - name: Identify instances that failed SSH
       ansible.builtin.set_fact:
-        # Two selectattr passes: the first keeps results that have a 'failed' key (skipped results
-        # may not), the second keeps only those where failed=true. Then map pulls out the original
-        # instance_id from each result's item (the loop variable from the wait_for task).
+        # Two selectattr passes: the first keeps results that have a 'failed' key (skipped results may not), the second
+        # keeps only those where failed=true. Then map pulls out the original instance_id from each result's loop
+        # variable (the instance from the wait_for task).
         _ssh_failed_ids: >-
           {{ ssh_results.results | default([])
              | selectattr('failed', 'defined')
              | selectattr('failed')
-             | map(attribute='item.instance_id')
+             | map(attribute='instance.instance_id')
              | list }}
 
     - name: Warn about instances that failed SSH

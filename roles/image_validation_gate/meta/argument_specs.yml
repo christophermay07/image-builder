@@ -1,0 +1,31 @@
+---
+# Public role input contract; defaults remain in defaults/main.yml.
+argument_specs:
+  main:
+    short_description: Check native-image validation evidence
+    options:
+      _builder_host:
+        type: str
+        description: Assigned builder for publication operations.
+        required: true
+      image_build_id:
+        type: str
+        description: Unique build attempt identity.
+        required: true
+      build_timestamp:
+        type: str
+        description: Frozen timestamp of this attempt.
+        required: true
+      cloud_image_result:
+        type: dict
+        description: Native image identity produced by this attempt.
+        required: true
+      image_validation_result:
+        type: dict
+        description: Successful native-image validation and cleanup evidence.
+        required: true
+      cloud_target:
+        type: str
+        description: Target cloud matching the inventory cloud group.
+        required: true
+        choices: [aws, azure, gcp]

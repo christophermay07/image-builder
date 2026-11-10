@@ -1,0 +1,20 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for windows_hardening
+    options:
+      ## STIG hardening
+      windows_stig_role:
+        type: str
+        description: Version-specific Ansible role used to apply Windows STIG remediation.
+        required: true
+
+      ## Windows customization
+      profile_windows_extra_features:
+        type: list
+        description: Additional Windows features to install for the selected profile.
+        elements: str
+      profile_windows_registry_entries:
+        type: dict
+        description: Mapping of named registry entries with path, name, and data fields.

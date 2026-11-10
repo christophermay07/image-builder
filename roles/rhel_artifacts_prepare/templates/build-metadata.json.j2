@@ -1,0 +1,20 @@
+{
+  "image_name": "{{ vm_name }}",
+  "os_family": "{{ os_family }}",
+  "os_version": "{{ os_version }}",
+  "image_version": "{{ image_version | default('unknown') }}",
+  "profile": "{{ profile }}",
+  "build_method": "{{ build_method }}",
+  "build_timestamp": "{{ build_timestamp }}",
+  "compose_uuid": "{{ build_compose_uuid | default('N/A') }}",
+  "compose_output_type": "{{ compose_output_type | default('qcow2') }}",
+  "stig_profile": "{{ stig_profile | default('N/A') }}",
+  "stig_datastream": "{{ stig_datastream | default('N/A') }}",
+  "stig_unselected_rules": {{ stig_unselected_rules | default([]) | to_json }},
+  "fips_enabled": true,
+  "builder_host": "{{ _builder_host }}",
+  "cloud_image_id": {{ cloud_image_result.image_id | to_json }},
+  "cloud_image_location": {{ cloud_image_result.location | to_json }},
+  "smoke_test": {{ image_validation_result | to_json }},
+  "cloud_target": "{{ cloud_target }}"
+}

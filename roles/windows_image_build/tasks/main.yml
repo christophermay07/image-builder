@@ -6,13 +6,58 @@
 #
 # Key variables:
 #
-#   builder_group      → from group_vars/method_packer.yml
-#                        (= "packer_builders")
-#   packer_binary      → from group_vars/packer_builders.yml
+#   builder_group      → from group_vars/method_packer.yml (= "builders_packer")
+#   packer_binary      → from group_vars/builders_packer.yml
 #   vm_name            → set from inventory_hostname
 #
-# Unlike RHEL, hardening and STIG scanning happen INSIDE the Packer guest via provisioner playbooks
-# (windows-harden.yml.j2 etc.), not as separate roles in the calling playbook.
+# This outer role copies provisioner playbooks and runs Packer on the Linux builder via delegate_to.
+# Packer's "ansible" provisioner then launches ansible-playbook ON THAT BUILDER to apply windows_hardening and
+# pre-seal scanning to the Windows guest over WinRM. The guest executes Windows module code, not Ansible itself.
+# builder_ansible_prepare stages their roles and forwards selected outer inventory settings. See
+# roles/windows_hardening/README.md for the call chain and current builder-side role/variable prerequisites.
+
+- name: Require version-specific Windows hardening inputs
+  ansible.builtin.assert:
+    that:
+      - windows_stig_role is string
+      - windows_stig_role | length > 0
+      - powerstig_stig_id is string
+      - powerstig_stig_id | length > 0
+    fail_msg: >-
+      Set windows_stig_role and powerstig_stig_id in the Windows version inventory.
+      No Windows release is used as a fallback for another release.
+
+- name: Validate Windows handoff types and provider override names
+  ansible.builtin.assert:
+    that:
+      - profile_windows_extra_features is sequence
+      - profile_windows_extra_features is not string
+      - profile_windows_extra_features is not mapping
+      - profile_windows_registry_entries is mapping
+      - windows_stig_overrides is mapping
+      # Toggle keys use wnYY_XX_NNNNNN: two version digits, two lowercase letters, and six control digits.
+      # The reject filter removes valid names; requiring an empty remainder ensures every supplied key matches.
+      - windows_stig_overrides.keys() | reject('match', '^wn[0-9]{2}_[a-z]{2}_[0-9]{6}$') | list | length == 0
+      - compliance_generate_html is boolean
+      - compliance_output_dir is string
+      # Provider aliases need one or more letters, digits, underscores, or hyphens; paths and dotted names fail.
+      - windows_stig_role is match('^[a-zA-Z0-9_-]+$')
+    fail_msg: Windows handoff requires typed profile values and only provider rule toggles in windows_stig_overrides.
+
+- name: Validate registry entries before launching a guest
+  ansible.builtin.assert:
+    that:
+      - item.value is mapping
+      - item.value.path is string
+      - item.value.name is string
+      - item.value.data is defined
+  loop: "{{ profile_windows_registry_entries | dict2items }}"
+  no_log: true
+
+- name: Validate rule toggle types
+  ansible.builtin.assert:
+    that: item.value is boolean
+  loop: "{{ windows_stig_overrides | dict2items }}"
 
 # Guard: same as rhel_image_build. Prevents index error if all packer builders failed to start or configure.
 - name: Verify builders are available for delegation
@@ -25,7 +70,7 @@
 
 # _builder_host: the single source of truth for which builder this phantom host delegates to.
 #
-# Set ONCE here via round-robin and inherited by every subsequent role in the play (image_release_publish,
+# Set ONCE here via round-robin and inherited by every subsequent role in the play (artifactory_upload,
 # artifactory_release_bundle). Those roles do NOT set _builder_host themselves; they rely on the host fact persisting
 # across include_role calls within the same play. See rhel_image_build for the full round-robin explanation.
 - name: Set builder host for delegation (round-robin, inherited by all downstream roles)
@@ -38,6 +83,31 @@
 - name: Set VM name from inventory hostname
   ansible.builtin.set_fact:
     vm_name: "{{ inventory_hostname }}"
+
+- name: Prepare isolated builder-side Ansible
+  ansible.builtin.include_role:
+    name: builder_ansible_prepare
+  vars:
+    builder_ansible_packages: "{{ hostvars[_builder_host].builder_pip_packages }}"
+    builder_ansible_collections: "{{ (lookup('file', playbook_dir ~ '/../requirements.yml') | from_yaml).collections }}"
+    builder_ansible_external_roles: "{{ (lookup('file', playbook_dir ~ '/../requirements.yml') | from_yaml).roles }}"
+    builder_ansible_project_roles: [windows_hardening, windows_compliance_scan]
+    builder_ansible_payloads:
+      hardening: >-
+        {{ {'profile': profile, 'os_version': os_version, 'windows_stig_role': windows_stig_role,
+            'profile_windows_extra_features': profile_windows_extra_features,
+            'profile_windows_registry_entries': profile_windows_registry_entries} | combine(windows_stig_overrides) }}
+      scan:
+        powerstig_version: "{{ powerstig_version }}"
+        powerstig_stig_id: "{{ powerstig_stig_id }}"
+        powerstig_manifest_hash: "{{ powerstig_manifest_hash }}"
+        nuget_provider_version: "{{ nuget_provider_version }}"
+        compliance_output_dir: "{{ compliance_output_dir }}"
+        compliance_generate_html: "{{ compliance_generate_html }}"
+
+- name: Use isolated Packer template directory
+  ansible.builtin.set_fact:
+    packer_template_dir: "{{ builder_ansible_workspace }}"
 
 - name: Create Packer directories
   ansible.builtin.file:
@@ -54,32 +124,58 @@
   ansible.builtin.template:
     src: windows-ami.pkr.hcl.j2
     dest: "{{ packer_template_dir }}/{{ vm_name }}.pkr.hcl"
-    mode: "0644"
+    mode: "0600"
   delegate_to: "{{ _builder_host }}"
 
 - name: Template Packer variables file
   ansible.builtin.template:
     src: windows-ami.pkrvars.hcl.j2
     dest: "{{ packer_template_dir }}/{{ vm_name }}.pkrvars.hcl"
-    mode: "0644"
+    mode: "0600"
   delegate_to: "{{ _builder_host }}"
 
-- name: Template Packer provisioner playbooks
-  ansible.builtin.template:
+- name: Copy Packer provisioner playbooks
+  ansible.builtin.copy:
     src: "{{ item.src }}"
     dest: "{{ packer_template_dir }}/{{ vm_name }}-{{ item.name }}.yml"
-    mode: "0644"
+    mode: "0600"
   loop:
-    - { src: windows-harden.yml.j2, name: harden }
-    - { src: windows-scan.yml.j2, name: scan }
-    - { src: windows-sysprep.yml.j2, name: sysprep }
+    - { src: windows-harden.yml, name: harden }
+    - { src: windows-scan.yml, name: scan }
+    - { src: windows-sysprep.yml, name: sysprep }
   delegate_to: "{{ _builder_host }}"
 
 - name: Template WinRM bootstrap user_data script
   ansible.builtin.template:
     src: winrm-bootstrap.ps1.j2
     dest: "{{ packer_template_dir }}/{{ vm_name }}-userdata.ps1"
-    mode: "0644"
+    mode: "0600"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Copy provider preflight playbook
+  ansible.builtin.copy:
+    src: windows-provider.yml
+    dest: "{{ packer_template_dir }}/{{ vm_name }}-provider.yml"
+    mode: "0600"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Preflight provisioner playbooks without connecting to guests
+  ansible.builtin.command:
+    argv:
+      - "{{ builder_ansible_bin }}/ansible-playbook"
+      - --syntax-check
+      - -i
+      - localhost,
+      - -e
+      - "@{{ builder_ansible_workspace }}/{{ item.payload }}.yml"
+      - "{{ packer_template_dir }}/{{ vm_name }}-{{ item.play }}.yml"
+  loop:
+    - {play: harden, payload: hardening}
+    - {play: provider, payload: hardening}
+    - {play: scan, payload: scan}
+    - {play: sysprep, payload: scan}
+  environment: "{{ builder_ansible_environment }}"
+  changed_when: false
   delegate_to: "{{ _builder_host }}"
 
 - name: Initialize Packer plugins
@@ -97,6 +193,7 @@
       {{ packer_binary }} build
       -var-file={{ packer_template_dir }}/{{ vm_name }}.pkrvars.hcl
       {{ packer_template_dir }}/{{ vm_name }}.pkr.hcl
+  no_log: true
   register: packer_result
   environment:
     PACKER_LOG: "1"
@@ -112,3 +209,11 @@
   ansible.builtin.set_fact:
     windows_ami_id: >-
       {{ packer_result.stdout | regex_search('ami-[a-z0-9]+') }}
+
+- name: Record produced native image identity
+  ansible.builtin.set_fact:
+    cloud_image_result:
+      provider: aws
+      image_id: "{{ windows_ami_id }}"
+      location: "{{ aws_region }}"
+      build_id: "{{ image_build_id }}"

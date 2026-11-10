@@ -1,0 +1,39 @@
+---
+# builder_ansible_prepare role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory or calling role.
+
+## Role-only (not in group_vars)
+# Runtime selection for the private environment. Override through extra-vars when using another supported runtime.
+builder_ansible_python: /usr/bin/python3.12
+builder_ansible_core_version: "2.19.11"
+
+## Caller-specific dependencies (supplied through include_role vars)
+# Windows uses builder_pip_packages from the assigned builder's group_vars/builders_packer.yml.
+# Collection and external role specifications come from the project's requirements.yml.
+# Other OS callers select their own dependency sets; none are implicitly Windows-specific.
+builder_ansible_packages: []
+builder_ansible_collections: []
+builder_ansible_external_roles: []
+
+## Caller-specific content and settings (supplied through include_role vars)
+# Project role names select directories in the controlling checkout's roles/ directory.
+# Payload keys are simple file basenames; values are dictionaries of resolved non-credential inputs.
+builder_ansible_payloads: {}
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+# Parent directory for unique build workspaces.
+builder_work_dir: /var/lib/image-builder
+
+## Upstream facts (set by earlier plays or roles)
+# Registered or set_fact variables from earlier stages.
+#
+# _builder_host - builder hostname (set_fact from the calling build role before include_role)
+
+## REQUIRED FROM CALLER (no sensible default)
+# These *must* be provided by the caller.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
+#
+# builder_ansible_project_roles - supplied by the build role; e.g., [windows_hardening]

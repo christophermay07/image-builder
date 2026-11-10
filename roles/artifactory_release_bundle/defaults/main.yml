@@ -5,34 +5,33 @@
 # Sections describe where the authoritative definition lives in this project's inventory.
 
 ## Cross-role, all hosts (defined in group_vars/all.yml)
-# Shared Artifactory settings; also used by image_export and image_release_publish.
+# Shared Artifactory settings; also used by artifactory_upload.
 
-artifactory_base_url: "https://artifactory.internal"
+# Match the upstream publisher: the role splits image_repo into a repository key and a path for the AQL query.
+# These settings select already uploaded artifacts; they are not a local directory or an upload destination here.
+# The endpoint is an environment placeholder; configure a reachable service before using this role.
+artifactory_base_url: "https://artifactory.example.com"
 artifactory_image_repo: "libs-release-local/images"
 
 ## Role-specific, all hosts (defined in group_vars/all.yml)
-# GPG signing key alias registered in Artifactory. Leave empty to skip signing (the bundle is still created but
-# remains unsigned). Guarded with `| default(omit, true)` in the task so an empty string omits the header entirely.
+# GPG signing key alias registered in Artifactory. Leave empty to skip signing (the bundle is still created but remains
+# unsigned). Guarded with `| default(omit, true)` in the task so an empty string omits the header entirely.
 
+# This value is an existing server-side key alias, not private-key material or a filesystem path.
 release_bundle_signing_key: ""
 
-## Role-only (computed at runtime)
-# Duplicated across image_export, image_release_publish, cloud_convert, and this role.
-
-build_timestamp: "{{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}"
+## REQUIRED FROM INVENTORY (no sensible default)
+# These *must* be provided by the inventory.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
+# Used strictly for artifact selection and bundle versioning; do not generate a replacement timestamp here.
+#
+# build_timestamp                  - shared build input (all.yml); e.g., "2026-10-30T12:00:00Z"
+# artifactory_token_release_bundle - AAP/vault-injected API token for release bundles to Artifactory.
+#   NOTE: The token is required at role entry; a
+#         missing token causes a hard failure.
 
 ## Upstream facts (set by earlier plays or roles)
 # Registered or set_fact variables from earlier stages.
 #
-# vm_name        - set by build roles (rhel_image_build / windows_image_build). This role sets it from
-#                  inventory_hostname when not already defined (`when: vm_name is not defined`).
-# _builder_host  - set by rhel_image_build or windows_image_build (round-robin delegation target). Used in
-#                  delegate_to for Artifactory API calls. No guard; the role fails if the build role did not run.
-
-## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
-# These *must* be provided by the inventory (or set by earlier roles).
-# The role fails with an UndefinedError if they are missing.
-#
-# artifactory_token_release_bundle  - AAP/vault-injected API token for release bundles to Artifactory.
-#   NOTE: Unlike image_export and image_release_publish, this role does NOT guard the token with `| default(omit)`; a
-#         missing token causes a hard failure.
+# _builder_host - builder hostname (set_fact from build role)

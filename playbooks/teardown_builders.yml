@@ -25,7 +25,7 @@
     # terminated.
     - name: Find ephemeral builder instances by tag
       amazon.aws.ec2_instance_info:
-        region: "{{ aws_region }}"
+        region: "{{ aws_builder_region }}"
         filters:
           "tag:purpose": image-builder
           "tag:ephemeral": "true"
@@ -45,7 +45,7 @@
 
     - name: Terminate ephemeral builder instances
       amazon.aws.ec2_instance:
-        region: "{{ aws_region }}"
+        region: "{{ aws_builder_region }}"
         instance_ids: >-
           {{ _ephemeral_instances.instances
              | map(attribute='instance_id') | list }}

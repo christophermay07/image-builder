@@ -1,0 +1,11 @@
+id = "{{ _source.id }}"
+{% if _source.name is defined %}
+name = "{{ _source.name }}"
+{% endif %}
+url = "{{ _source.baseurl }}"
+type = "yum-baseurl"
+check_gpg = {{ _source.gpgcheck | default(true) | bool | lower }}
+check_ssl = true
+{% if _source.gpgkey is defined %}
+gpgkeys = ["{{ _source.gpgkey }}"]
+{% endif %}

@@ -1,22 +1,42 @@
 ---
-# Create a JFrog Release Bundle v2 that groups every artifact uploaded
-# under the current vm_name/build_timestamp path into a single
-# distributable unit.
+# Create a JFrog Release Bundle v2 that groups every artifact uploaded under the current vm_name/build_timestamp path
+# into a single distributable unit.
+
+# Called explicitly by each build playbook after artifactory_upload.
+# The artifact files must already be in Artifactory. This role sends API requests; it does not transfer disk images.
 
 # _builder_host is inherited from the build role (set once per phantom host via round-robin; see rhel_image_build).
+
+# Assign the target name unconditionally here so the bundle identity follows inventory_hostname.
+- name: Require authenticated publication settings
+  ansible.builtin.assert:
+    that:
+      - artifactory_token_release_bundle is string and artifactory_token_release_bundle | length > 0
+      - artifactory_base_url is string and artifactory_base_url | length > 0
+      - artifactory_base_url | urlsplit('scheme') in ['http', 'https']
+      - artifactory_base_url | urlsplit('hostname') is not none
+      - _builder_host is string and _builder_host | trim | length > 0
+      - build_timestamp is string and build_timestamp | trim | length > 0
+      - artifactory_image_repo is string and artifactory_image_repo.split('/')[0] | length > 0
+  no_log: true
 
 - name: Set VM name from inventory hostname
   ansible.builtin.set_fact:
     vm_name: "{{ inventory_hostname }}"
-  when: vm_name is not defined
 
-# Split "libs-release-local/images" into repo key ("libs-release-local") and sub-path ("images/...").
-# [1:] drops the repo key; join('/') reassembles the remaining segments into the AQL path.
+# Split artifactory_image_repo on "/" into the repo key (first segment) and the sub-path (everything after). [1:] drops
+# the repo key; join('/') reassembles the remaining segments into the AQL path.
+# For libs-release-local/images, the resulting repo is libs-release-local and the path is
+# images/<inventory_hostname>/<build_timestamp>. Keep this prefix aligned with the upstream upload location.
 - name: Derive Artifactory repo name from image repo path
   ansible.builtin.set_fact:
     _artifactory_repo: "{{ artifactory_image_repo.split('/')[0] }}"
     _artifactory_path: "{{ artifactory_image_repo.split('/')[1:] | join('/') }}/{{ vm_name }}/{{ build_timestamp }}"
 
+# Send the selection query to JFrog rather than enumerating local files. The AQL below uses the derived
+# repository key and the literal <build-path>/* path pattern; the server evaluates which artifacts match.
+# The bundle name identifies the target; its version is the shared build_timestamp used during publication.
+# The request is delegated to the builder, which therefore needs network access to the lifecycle API.
 - name: Create Release Bundle v2
   ansible.builtin.uri:
     url: "{{ artifactory_base_url }}/lifecycle/api/v2/release_bundle"
@@ -34,13 +54,14 @@
           })
     headers:
       Authorization: "Bearer {{ artifactory_token_release_bundle }}"
-      # default(omit, true) treats empty string as undefined, so the header is omitted entirely
-      # when no signing key is configured.
+      # default(omit, true) treats empty string as undefined, so header is omitted when no signing key is configured.
       X-JFrog-Signing-Key-Name: "{{ release_bundle_signing_key | default(omit, true) }}"
     status_code: [200, 201]
   register: _release_bundle_result
   delegate_to: "{{ _builder_host }}"
 
+# Issue the separate signing request only when a key alias is configured. The key must already exist in JFrog;
+# this role does not create or upload signing keys. A signing failure stops the role before details are recorded.
 - name: Sign Release Bundle
   ansible.builtin.uri:
     url: "{{ artifactory_base_url }}/lifecycle/api/v2/release_bundle/{{ vm_name }}/{{ build_timestamp }}/sign"
@@ -54,6 +75,8 @@
   delegate_to: "{{ _builder_host }}"
   when: release_bundle_signing_key | default('') | length > 0
 
+# Expose the requested bundle identity as facts on the inventory target after the API tasks succeed.
+# These values come from the request variables, not from parsing the registered creation response.
 - name: Record Release Bundle details
   ansible.builtin.set_fact:
     release_bundle_name: "{{ vm_name }}"

@@ -1,0 +1,34 @@
+---
+# Used before upload by every publisher and again before final approval.
+- name: Require current native-image validation and cleanup
+  ansible.builtin.assert:
+    that:
+      - group_names | intersect(['cloud_aws', 'cloud_azure', 'cloud_gcp']) | length == 1
+      - ('cloud_' ~ cloud_target) in group_names
+      - image_build_id is string
+      - image_build_id is match('^[a-z0-9]{32}$')
+      - build_timestamp is string
+      - build_timestamp | length > 0
+      - _builder_host is string
+      - _builder_host | trim | length > 0
+      - cloud_image_result is mapping
+      - cloud_image_result.provider | default('') == cloud_target
+      - cloud_image_result.build_id | default('') == image_build_id
+      - cloud_image_result.image_id | default('') is string
+      - cloud_image_result.image_id | default('') | length > 0
+      - cloud_image_result.location | default('') is string
+      - cloud_image_result.location | default('') | length > 0
+      - image_validation_result is mapping
+      - image_validation_result.target | default('') == inventory_hostname
+      - image_validation_result.provider | default('') == cloud_target
+      - image_validation_result.build_id | default('') == image_build_id
+      - image_validation_result.build_timestamp | default('') == build_timestamp
+      - image_validation_result.image_id | default('') == cloud_image_result.image_id
+      - image_validation_result.location | default('') == cloud_image_result.location
+      - image_validation_result.status | default('') == 'passed'
+      - image_validation_result.cleanup_status | default('') == 'passed'
+      - image_validation_result.tested_at | default('') is string
+      - image_validation_result.tested_at | default('') | length > 0
+    fail_msg: >-
+      Supply this attempt's registered native image and successful validation/cleanup record before publication.
+      OS-specific validation must finish before either publisher uploads artifacts.

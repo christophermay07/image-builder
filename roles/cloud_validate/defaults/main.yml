@@ -1,0 +1,16 @@
+---
+# cloud_validate role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## REQUIRED FROM INVENTORY OR CALLER (no sensible default)
+# cloud_target - per-cloud, cross-role (cloud_*.yml); must match the selected cloud group
+
+## Upstream facts (set by earlier plays or roles)
+# cloud_image_result        - provider, native image ID, location, build identity, and checksum from cloud_convert
+# image_build_id             - current attempt identity from build_rhel.yml
+# build_timestamp           - frozen build timestamp from build_rhel.yml
+# prepared_qcow2_sha256 - checksum of the canonical qcow2 from image_prepare
+# image_validation_result         - output of the selected provider validation handler, checked before returning
+# Provider-specific inputs are declared by their implementations; AWS uses rhel_ami_validate defaults and specs.

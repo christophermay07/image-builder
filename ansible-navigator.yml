@@ -1,0 +1,19 @@
+---
+ansible-navigator:
+  # Run inside the project's Execution Environment so CLI runs match what AAP executes.
+  execution-environment:
+    # EE Base includes boto3, amazon.aws, and community.general. For Windows builds,
+    # switch to the ee-windows image (adds pywinrm and ansible.windows).
+    image: artifactory.example.com/docker-local/ee-images/ee-base:latest
+    pull:
+      policy: missing
+
+  # stdout mode by default: output goes straight to the terminal, same UX as ansible-playbook.
+  # Switch to interactive mode (--mode interactive) for the TUI when you want to drill into
+  # task results, inspect host facts, or browse play-by-play output after a long run.
+  mode: stdout
+
+  playbook-artifact:
+    # Don't litter the project with replay files. Set to a path if you want to save them
+    # for later review with `ansible-navigator replay`.
+    enable: false

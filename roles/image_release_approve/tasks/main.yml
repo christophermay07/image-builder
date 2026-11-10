@@ -1,0 +1,49 @@
+---
+- name: Validate image before publication approval
+  ansible.builtin.include_role:
+    name: image_validation_gate
+
+- name: Require successful artifact publication
+  ansible.builtin.assert:
+    that:
+      - artifactory_upload_result is mapping
+      - artifactory_upload_result.status | default('') == 'uploaded'
+      - artifactory_upload_result.target | default('') == inventory_hostname
+      - artifactory_upload_result.build_timestamp | default('') == build_timestamp
+      - release_bundle_name is defined
+      - release_bundle_name == inventory_hostname
+      - release_bundle_version is defined
+      - release_bundle_version == build_timestamp
+      - os_family is string
+      - os_family | trim | length > 0
+      - os_version is string
+      - os_version | trim | length > 0
+      - build_method is string
+      - build_method | trim | length > 0
+      - profile is string
+      - profile | trim | length > 0
+    fail_msg: Complete artifact uploads and create the Release Bundle for this target and timestamp before approval.
+
+- name: Approve AWS image publication
+  ansible.builtin.include_tasks: approve_aws.yml
+  when: "'cloud_aws' in group_names"
+
+- name: Approve Azure image publication
+  ansible.builtin.include_tasks: approve_azure.yml
+  when: "'cloud_azure' in group_names"
+
+- name: Approve GCP image publication
+  ansible.builtin.include_tasks: approve_gcp.yml
+  when: "'cloud_gcp' in group_names"
+
+- name: Record published image for this process
+  ansible.builtin.set_fact:
+    published_image: >-
+      {{ image_validation_result | combine({'builder_host': _builder_host, 'publication_status': 'published',
+         'os_family': os_family, 'os_version': os_version, 'build_method': build_method, 'profile': profile}) }}
+
+- name: Pass target publication record to downstream AAP jobs
+  ansible.builtin.set_stats:
+    data: "{{ {'image_publication_' ~ (inventory_hostname | hash('sha256')): published_image} }}"
+    aggregate: false
+    per_host: false

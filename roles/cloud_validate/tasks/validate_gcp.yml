@@ -1,0 +1,13 @@
+---
+# GCP validation runs from the AWS builder, like the AWS guest validation implementation.
+# TODO: Launch a temporary Compute Engine VM from cloud_image_result.image_id in the recorded source project.
+# TODO: Supply a temporary SSH public key through the image's supported GCP login path; do not repair guest SSH.
+# TODO: Authenticate over SSH from the builder and verify the configured login user with id -un.
+# TODO: Always remove the VM, its disks, temporary login metadata/keys, and local key material after partial failures.
+# TODO: Retain failed images for debugging and record image_validation_result only after SSH and all cleanup succeed.
+# The common result fields are documented in ../README.md; do not return an AMI ID or AWS region.
+- name: Stop until GCP image validation is implemented
+  ansible.builtin.fail:
+    msg: >-
+      TODO: Implement GCP VM boot, authenticated SSH, and unconditional guest cleanup in cloud_validate.
+      GCP image validation is not implemented; Artifactory publication is blocked.

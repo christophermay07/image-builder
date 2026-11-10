@@ -1,0 +1,90 @@
+---
+# AWS cloud-specific settings (Dimension 5)
+#
+# Variables here apply to every phantom host that targets AWS.
+# Roles dispatch on group membership ("'cloud_aws' in group_names").
+#
+# Builder infrastructure settings (start/stop/provision builder EC2 instances) live in all.yml because builders run on
+# AWS regardless of which cloud the images target.
+
+cloud_target: aws
+
+# cloud-init datasource ordering for AWS images.
+# Ec2 is checked first; NoCloud is the fallback for local dev/test (booting the qcow2 in libvirt/QEMU without a metadata
+# service).
+cloud_init_datasources:
+  - Ec2
+  - NoCloud
+
+# Chrony NTP configuration for AWS.
+# Amazon Time Sync Service runs at a link-local address available to all EC2 instances with no security group or network
+# config required.
+# https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/set-time.html
+chrony_config: |
+  server 169.254.169.123 prefer iburst minpoll 4 maxpoll 4
+  driftfile /var/lib/chrony/drift
+  makestep 1.0 3
+  rtcsync
+  logdir /var/log/chrony
+
+## Image conversion (cloud_convert role)
+
+# Region where AMIs are created. Also used by image_distribute and ami_cleanup as the "home" region.
+aws_region: us-east-1  # TODO: confirm region
+
+# S3 bucket for image pipeline output (compressed qcow2 staging).
+aws_image_output_bucket: s3://image-pipeline-output  # TODO: confirm bucket name
+
+# S3 bucket used by cloud_convert for qcow2 -> raw -> AMI import via vmimport.
+ami_import_bucket: "image-pipeline-import"  # TODO: confirm bucket name
+
+## RHEL AMI smoke test (rhel_ami_validate role)
+
+# Required before AWS RHEL builds can publish. Supply real values through inventory or extra-vars.
+# rhel_smoke_subnet_id: subnet-0123456789abcdef0
+# rhel_smoke_security_group_ids: [sg-0123456789abcdef0]
+# The builder must reach the guest private IP on TCP 22. No public IP or SSH repair user-data is used.
+
+## Image distribution (image_distribute role)
+
+# Regions to copy AMIs to (beyond aws_region).
+ami_target_regions: []
+
+# Accounts to share AMIs with.
+ami_target_accounts: []
+
+## AMI cleanup (ami_cleanup role)
+
+# Retention policy. Defaults disable cleanup; set real values before production use.
+# keep_count: number of most-recent AMIs to keep per target per region
+#   (-1 = keep all).
+# older_than: ISO date (YYYY-MM-DD); AMIs created before this date are
+#   deleted regardless of keep_count.
+ami_cleanup_keep_count: -1
+ami_cleanup_older_than: "2000-01-01"
+
+## AWS credentials for image operations
+#
+# These are for image conversion, distribution, and cleanup; NOT for builder lifecycle (those live in all.yml as
+# aws_builder_*).
+#
+# Today all image functions use one identity. To split later (e.g., separate IAM roles for build vs. distribute vs.
+# cleanup), override only the function-specific variants below.
+#
+# Leave these empty; AAP injects them as extra-vars or env vars.
+aws_access_key_id: ""
+aws_secret_access_key: ""
+aws_session_token: ""
+
+# Per-function overrides; all default to the shared credential above.
+aws_build_access_key_id: "{{ aws_access_key_id }}"
+aws_build_secret_access_key: "{{ aws_secret_access_key }}"
+aws_build_session_token: "{{ aws_session_token }}"
+
+aws_distribute_access_key_id: "{{ aws_access_key_id }}"
+aws_distribute_secret_access_key: "{{ aws_secret_access_key }}"
+aws_distribute_session_token: "{{ aws_session_token }}"
+
+aws_cleanup_access_key_id: "{{ aws_access_key_id }}"
+aws_cleanup_secret_access_key: "{{ aws_secret_access_key }}"
+aws_cleanup_session_token: "{{ aws_session_token }}"

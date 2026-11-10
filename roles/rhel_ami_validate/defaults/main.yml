@@ -1,0 +1,36 @@
+---
+# rhel_ami_validate role defaults
+#
+# Every variable the role consumes is listed here so the role is self-documenting.
+# Sections describe where the authoritative definition lives in this project's inventory.
+
+## Role-only (not in group_vars)
+# Operational tuning; override via extra-vars when needed.
+rhel_smoke_instance_type: m5.large
+rhel_smoke_ssh_user: ec2-user
+rhel_smoke_ssh_port: 22
+rhel_smoke_ssh_timeout: 900
+
+## Cross-role, all hosts (defined in group_vars/all.yml)
+builder_work_dir: /var/lib/image-builder
+
+## AWS settings (defined in group_vars/cloud_aws.yml)
+aws_region: us-east-1
+
+## AWS credentials (build function, defined in group_vars/cloud_aws.yml)
+# Empty values use the assigned builder's environment or instance role.
+aws_build_access_key_id: ""
+aws_build_secret_access_key: ""
+aws_build_session_token: ""
+
+## REQUIRED FROM INVENTORY OR CALLER (no sensible default)
+# rhel_smoke_subnet_id          - cloud_aws.yml; subnet reachable from the builder
+# rhel_smoke_security_group_ids - cloud_aws.yml; security groups allowing SSH from the builder
+
+## Upstream facts (set by earlier plays or roles)
+# _builder_host                - assigned builder from rhel_image_build
+# aws_ami_id                   - imported AMI from cloud_convert
+# cloud_image_result           - current-attempt AMI and source checksum from cloud_convert
+# image_build_id                - unique attempt identity from build_rhel.yml
+# build_timestamp              - frozen build timestamp from build_rhel.yml
+# prepared_qcow2_sha256    - checksum from image_prepare

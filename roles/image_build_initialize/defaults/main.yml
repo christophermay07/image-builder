@@ -1,0 +1,3 @@
+---
+# Required: build_timestamp from shared inventory; frozen for the current attempt.
+# Outputs: image_build_id, cleared image/validation/artifact/approval state, and a target-specific AAP artifact.

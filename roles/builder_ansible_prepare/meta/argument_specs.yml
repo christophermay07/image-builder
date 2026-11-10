@@ -1,0 +1,79 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for builder_ansible_prepare
+    options:
+      ## Inherited and derived values
+      _builder_host:
+        type: str
+        description: Assigned Linux builder hostname from the build role.
+        required: true
+      builder_ansible_workspace:
+        type: str
+        description: Private workspace normally allocated by builder_ansible_prepare.
+      builder_ansible_bin:
+        type: str
+        description: Executable directory normally derived from the private workspace.
+      builder_ansible_environment:
+        type: dict
+        description: Environment normally derived from the private workspace.
+
+      ## Ansible runtime
+      builder_ansible_python:
+        type: str
+        description: Python executable used to create the isolated Ansible environment.
+      builder_ansible_core_version:
+        type: str
+        description: Pinned ansible-core version installed in the isolated environment.
+
+      ## Provisioning dependencies
+      builder_ansible_packages:
+        type: list
+        description: Additional Python packages installed in the isolated Ansible environment.
+        elements: str
+      builder_ansible_collections:
+        type: list
+        description: Collection requirements installed in the isolated Ansible environment.
+        elements: dict
+        options:
+          name:
+            type: str
+            description: Installed dependency name.
+            required: true
+          version:
+            type: str
+            description: Pinned dependency version.
+      builder_ansible_external_roles:
+        type: list
+        description: External role requirements installed in the isolated Ansible environment.
+        elements: dict
+        options:
+          name:
+            type: str
+            description: Installed dependency name.
+            required: true
+          version:
+            type: str
+            description: Pinned dependency version.
+          src:
+            type: str
+            description: Role source URL.
+          scm:
+            type: str
+            description: Source control type.
+
+      ## Project content and payloads
+      builder_ansible_project_roles:
+        type: list
+        description: Project role directories to stage from the controlling checkout.
+        required: true
+        elements: str
+      builder_ansible_payloads:
+        type: dict
+        description: Mapping of safe payload basenames to configuration dictionaries.
+
+      ## Working directories
+      builder_work_dir:
+        type: str
+        description: Base directory for builder workspaces and artifacts.

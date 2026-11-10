@@ -1,21 +1,31 @@
 ---
-# Convert qcow2 to VHD for Azure.
+# Convert on the AWS builder; target-cloud upload and registration belong in this provider handler.
+- name: Set unique Azure conversion output
+  ansible.builtin.set_fact:
+    _azure_import_vhd: "{{ image_output_dir }}/{{ vm_name }}-{{ image_build_id }}.vhd"
+
 - name: Convert qcow2 to VHD format
   ansible.builtin.command:
-    cmd: >-
-      qemu-img convert -f qcow2 -O vpc -o subformat=fixed,force_size
-      {{ image_output_dir }}/{{ vm_name }}.qcow2
-      {{ image_output_dir }}/{{ vm_name }}.vhd
+    argv:
+      - qemu-img
+      - convert
+      - -f
+      - qcow2
+      - -O
+      - vpc
+      - -o
+      - subformat=fixed,force_size
+      - "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+      - "{{ _azure_import_vhd }}"
   changed_when: true
   delegate_to: "{{ _builder_host }}"
 
-# TODO: Upload VHD to Azure Blob Storage and register as managed image
-# This requires Azure CLI or azure.azcollection modules.
-# Placeholder for Azure upload logic:
-- name: Upload VHD to Azure (placeholder)
-  ansible.builtin.debug:
+# TODO: Upload _azure_import_vhd to Azure storage and register a native image, checking Azure disk requirements.
+# TODO: Wait for native image provisioning to finish before returning a registered image.
+# TODO: Record cloud_image_result with provider=azure, image_id, location, build_id, and qcow2_sha256.
+# location is the Azure image region; image_id must identify the registered native image, not its storage blob.
+- name: Stop until Azure image registration is implemented
+  ansible.builtin.fail:
     msg: >-
-      TODO: Upload {{ image_output_dir }}/{{ vm_name }}.vhd to Azure Blob Storage
-      and register as a managed image. Requires Azure credentials and
-      azure.azcollection or az CLI.
-  delegate_to: "{{ _builder_host }}"
+      TODO: Implement Azure upload and native image registration in cloud_convert.
+      No registered image is available for SSH validation; Artifactory publication is blocked.

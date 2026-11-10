@@ -2,7 +2,7 @@
 profile: production
 skip_list:
   # Some generated/template playbooks omit task names for brevity
-  #- name[missing]
+  - name[missing]
   # Role names should not be filesystem paths
   - role-name[path]
   # Variables should be prefixed with the role name
@@ -11,6 +11,10 @@ skip_list:
 exclude_paths:
   - .git/
   - tests/
+  # This helper requires windows_stig_role from the build's hardening.yml payload, unavailable to standalone linting.
+  # syntax-check cannot be suppressed per line. The build syntax-checks this playbook with its actual provider input
+  # before starting Packer, so exclude it here instead of supplying a lint-only provider selection.
+  - roles/windows_image_build/files/windows-provider.yml
 kinds:
   - playbook: "playbooks/*.yml"
   - vars: "inventory/group_vars/**/*.yml"

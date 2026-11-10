@@ -1,16 +1,46 @@
 ---
-# Builder configuration; called by configure_builders.yml against the "builders" group (both osbuild_builders AND
-# packer_builders).
+# Builder configuration; called by configure_builders.yml against the "builders" group (all builder types).
 #
 # This role installs different tooling depending on which child group the host belongs to. The group_names check below
-# is how one role serves both builder types without needing two separate roles.
+# is how one role serves all builder types without needing separate roles per type.
 #
 # Variables used here come from the builder's group_vars:
-#   builder_packages     → group_vars/osbuild_builders.yml or packer_builders.yml
+#   builder_packages     → group_vars/builders_<type>.yml (e.g., builders_osbuild.yml, builders_packer.yml)
 #   validation_packages  → same
 #   builder_work_dir etc → group_vars/builders.yml (shared)
 
-# Both builder types get their type-specific packages.
+- name: Validate builder package lists and directories
+  ansible.builtin.assert:
+    that:
+      - builder_packages is sequence
+      - builder_packages is not string
+      - builder_packages is not mapping
+      - validation_packages is sequence
+      - validation_packages is not string
+      - validation_packages is not mapping
+      - builder_work_dir is string and builder_work_dir | trim | length > 0
+      - image_output_dir is string and image_output_dir | trim | length > 0
+      - report_output_dir is string and report_output_dir | trim | length > 0
+    fail_msg: Supply package lists and non-empty builder working and output directories.
+
+- name: Validate osbuild blueprint directory
+  ansible.builtin.assert:
+    that:
+      - blueprint_dir is string and blueprint_dir | trim | length > 0
+    fail_msg: Supply a non-empty blueprint directory for osbuild builders.
+  when: '''builders_osbuild'' in group_names'
+
+- name: Validate Packer installation settings
+  ansible.builtin.assert:
+    that:
+      - packer_binary is string and packer_binary | trim | length > 0
+      - packer_version is string and packer_version | trim | length > 0
+      - packer_download_url is string and packer_download_url | trim | length > 0
+      - packer_checksum is string and packer_checksum | trim | length > 0
+    fail_msg: Supply the Packer executable, version, download URL, and checksum for Packer builders.
+  when: '''builders_packer'' in group_names'
+
+# Every builder type gets its type-specific packages.
 - name: Install builder packages
   ansible.builtin.dnf:
     name: "{{ builder_packages }}"
@@ -23,16 +53,16 @@
     state: present
   when: validation_packages | length > 0
 
-# Only osbuild_builders need osbuild-composer. The group_names check ensures this doesn't run on packer_builders, which
+# Only builders_osbuild need osbuild-composer. The group_names check ensures this doesn't run on builders_packer, which
 # don't have it.
 - name: Enable and start osbuild-composer socket
   ansible.builtin.systemd:
     name: osbuild-composer.socket
     state: started
     enabled: true
-  when: "'osbuild_builders' in group_names"
+  when: "'builders_osbuild' in group_names"
 
-# Shared directories for both builder types.
+# Shared directories for all builder types.
 - name: Create work directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -43,36 +73,22 @@
     - "{{ image_output_dir }}"
     - "{{ report_output_dir }}"
 
-# Only osbuild_builders use osbuild-composer blueprints.
+# Only builders_osbuild use osbuild-composer blueprints.
 - name: Create blueprint directory
   ansible.builtin.file:
     path: "{{ blueprint_dir }}"
     state: directory
     mode: "0755"
-  when: "'osbuild_builders' in group_names"
+  when: "'builders_osbuild' in group_names"
 
-# Only packer_builders need Packer installed.
+# Only builders_packer need Packer installed.
 - name: Install Packer (for Windows AMI builds)
   ansible.builtin.include_tasks: install_packer.yml
-  when: "'packer_builders' in group_names"
+  when: "'builders_packer' in group_names"
 
-# Packer's Ansible provisioner runs ansible-playbook directly on the
-# builder host (not inside the EE). The provisioner playbooks connect
-# to the Windows guest over WinRM and use ansible.windows modules, so
-# the builder needs pywinrm and the ansible.windows collection in its
-# own Python/Ansible environment.
-- name: Install builder-side pip packages (for Packer Ansible provisioner)
-  ansible.builtin.pip:
-    name: "{{ builder_pip_packages }}"
+# Each build creates an isolated Ansible environment; no shared runtime is modified during a build.
+- name: Install prerequisites for isolated builder-side Ansible environments
+  ansible.builtin.dnf:
+    name: [python3.12, python3.12-pip, git]
     state: present
-  when: builder_pip_packages | length > 0
-
-- name: Install builder-side Ansible collections (for Packer Ansible provisioner)
-  ansible.builtin.command:
-    cmd: >-
-      ansible-galaxy collection install
-      {{ item.name }}:{{ item.version | default('*') }}
-      --force
-  loop: "{{ builder_collections }}"
-  changed_when: true
-  when: builder_collections | length > 0
+  when: "'builders_packer' in group_names"

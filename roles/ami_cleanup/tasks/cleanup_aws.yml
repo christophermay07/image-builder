@@ -10,6 +10,33 @@
 #
 # Runs once per phantom host, across the source region and any cross-region copy targets.
 
+- name: Validate AMI cleanup scope
+  ansible.builtin.assert:
+    that:
+      - vm_name is string and vm_name | trim | length > 0
+      - '''*'' not in vm_name and ''?'' not in vm_name'
+      - aws_region is string and aws_region | trim | length > 0
+      - ami_target_regions is sequence
+      - ami_target_regions is not string
+      - ami_target_regions is not mapping
+    fail_msg: Cleanup requires a literal non-empty target name without wildcard characters, a source region, and a region
+      list.
+
+- name: Validate cleanup region names
+  ansible.builtin.assert:
+    that:
+      - item is string and item | trim | length > 0
+    fail_msg: Cleanup regions must be non-empty strings.
+  loop: "{{ ami_target_regions }}"
+
+- name: Validate AMI retention policy before querying deletion candidates
+  ansible.builtin.assert:
+    that:
+      - ami_cleanup_keep_count is integer and ami_cleanup_keep_count >= -1
+      - ami_cleanup_older_than is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+      - (ami_cleanup_older_than | to_datetime('%Y-%m-%d')).strftime('%Y-%m-%d') == ami_cleanup_older_than
+    fail_msg: Retention count must be -1 or nonnegative; the cutoff must be a valid YYYY-MM-DD date.
+
 - name: Build list of regions to clean
   ansible.builtin.set_fact:
     _cleanup_regions: "{{ ([aws_region] + ami_target_regions) | unique }}"
@@ -20,11 +47,13 @@
       - self
     filters:
       "tag:Name": "{{ vm_name }}"
-    region: "{{ item }}"
+    region: "{{ cleanup_region }}"
     access_key: "{{ aws_cleanup_access_key_id | default(omit, true) }}"
     secret_key: "{{ aws_cleanup_secret_access_key | default(omit, true) }}"
     session_token: "{{ aws_cleanup_session_token | default(omit, true) }}"
   loop: "{{ _cleanup_regions }}"
+  loop_control:
+    loop_var: cleanup_region
   register: _ami_query
   check_mode: false
   delegate_to: localhost
@@ -48,8 +77,8 @@
         (_count_out | map('combine', {'_region': _region}) | list)
       }}
   vars:
-    _region: "{{ item.item }}"
-    _sorted: "{{ item.images | sort(attribute='creation_date', reverse=true) }}"
+    _region: "{{ region_result.cleanup_region }}"
+    _sorted: "{{ region_result.images | sort(attribute='creation_date', reverse=true) }}"
     _date_threshold: "{{ ami_cleanup_older_than }}T00:00:00.000Z"
     # selectattr 'lt' compares ISO-8601 strings lexicographically (works because the format is sortable).
     _dated_out: "{{ _sorted | selectattr('creation_date', 'lt', _date_threshold) | list }}"
@@ -59,7 +88,8 @@
     _count_out: "{{ _kept_by_date[ami_cleanup_keep_count:] if ami_cleanup_keep_count != -1 else [] }}"
   loop: "{{ _ami_query.results }}"
   loop_control:
-    label: "{{ item.item }}"
+    loop_var: region_result
+    label: "{{ region_result.cleanup_region }}"
 
 - name: Log cleanup summary
   ansible.builtin.debug:
@@ -75,8 +105,8 @@
 
 - name: Deregister old AMIs and delete backing snapshots
   amazon.aws.ec2_ami:
-    image_id: "{{ item.image_id }}"
-    region: "{{ item._region }}"
+    image_id: "{{ stale_ami.image_id }}"
+    region: "{{ stale_ami._region }}"
     delete_snapshot: true
     state: absent
     access_key: "{{ aws_cleanup_access_key_id | default(omit, true) }}"
@@ -84,5 +114,6 @@
     session_token: "{{ aws_cleanup_session_token | default(omit, true) }}"
   loop: "{{ _amis_to_delete }}"
   loop_control:
-    label: "{{ item.image_id }} ({{ item.name | default(vm_name) }}, {{ item.creation_date }}, {{ item._region }})"
+    loop_var: stale_ami
+    label: "{{ stale_ami.image_id }} ({{ stale_ami.name | default(vm_name) }}, {{ stale_ami.creation_date }}, {{ stale_ami._region }})"
   delegate_to: localhost

@@ -2,11 +2,30 @@
 # Linux profile defaults inherited by every profile.
 # See README.md in this directory for composition rules and YAML syntax notes.
 
-_base_linux_packages: []
-#   - tuned-profiles-poc
-#   - compat-poc-c++-12
+_base_linux_packages:
+  - cloud-init
+  - cloud-utils-growpart
+  - scap-security-guide
+  - openscap-scanner
+  - aide
+  - rsyslog
+  - chrony
 _profile_specific_linux_packages: []
+#   - tuned-profiles-throughput-performance
+#   - compat-c++-12
 profile_linux_packages: "{{ _base_linux_packages + _profile_specific_linux_packages }}"
+
+_base_linux_enabled_services:
+  - cloud-init
+  - cloud-init-local
+  - cloud-config
+  - cloud-final
+_profile_specific_linux_enabled_services: []
+profile_linux_enabled_services: "{{ _base_linux_enabled_services + _profile_specific_linux_enabled_services }}"
+
+_base_linux_disabled_services: []
+_profile_specific_linux_disabled_services: []
+profile_linux_disabled_services: "{{ _base_linux_disabled_services + _profile_specific_linux_disabled_services }}"
 
 _base_linux_post_tasks: []
 #   - include_tasks: common_linux_customizations.yml
@@ -26,3 +45,106 @@ _base_filesystem_layout:
   "/var/log/audit": "1 GiB"
 _profile_specific_filesystem_layout: {}
 blueprint_filesystem_layout: "{{ _base_filesystem_layout | combine(_profile_specific_filesystem_layout) }}"
+
+# Build-time yum sources pushed to osbuild-composer before the compose. These repos are available during the build for
+# installing packages but are NOT present in the final image. Entries may use Jinja ({{ os_major }}, {{ os_version }},
+# {{ yum_repo_base_url }}, {{ yum_repo_gpgkey }}); Ansible resolves them per host. See rhel_targets.yml for
+# the shared settings those expressions reference.
+_base_build_yum_sources:
+  ## Core repos (all RHEL versions)
+  - id: "rhel-{{ os_major }}-for-x86_64-appstream-rpms"
+    name: "Red Hat Enterprise Linux {{ os_major }} for x86_64 - AppStream (RPMs)"
+    baseurl: "https://{{ yum_repo_base_url }}/redhat{{ os_major }}/{{ os_version }}/rhel-{{ os_major }}-for-x86_64-appstream-rpms"
+    gpgcheck: 1
+    gpgkey: "{{ yum_repo_gpgkey }}"
+  - id: "rhel-{{ os_major }}-for-x86_64-baseos-rpms"
+    name: "Red Hat Enterprise Linux {{ os_major }} for x86_64 - BaseOS (RPMs)"
+    baseurl: "https://{{ yum_repo_base_url }}/redhat{{ os_major }}/{{ os_version }}/rhel-{{ os_major }}-for-x86_64-baseos-rpms"
+    gpgcheck: 1
+    gpgkey: "{{ yum_repo_gpgkey }}"
+  - id: "rhel-{{ os_major }}-for-x86_64-supplementary-rpms"
+    name: "Red Hat Enterprise Linux {{ os_major }} for x86_64 - Supplementary (RPMs)"
+    baseurl: "https://{{ yum_repo_base_url }}/redhat{{ os_major }}/{{ os_version }}/rhel-{{ os_major }}-for-x86_64-supplementary-rpms"
+    gpgcheck: 1
+    gpgkey: "{{ yum_repo_gpgkey }}"
+
+  ## EUS repos (RHEL 8 and 9 only)
+  - id: "rhel-{{ os_major }}-for-x86_64-appstream-eus-rpms"
+    name: "Red Hat Enterprise Linux {{ os_major }} for x86_64 - AppStream EUS (RPMs)"
+    baseurl: "https://{{ yum_repo_base_url }}/redhat{{ os_major }}/{{ os_version }}/rhel-{{ os_major }}-for-x86_64-appstream-eus-rpms"
+    gpgcheck: 1
+    gpgkey: "{{ yum_repo_gpgkey }}"
+    os_major: ["8", "9"]
+  - id: "rhel-{{ os_major }}-for-x86_64-baseos-eus-rpms"
+    name: "Red Hat Enterprise Linux {{ os_major }} for x86_64 - BaseOS EUS (RPMs)"
+    baseurl: "https://{{ yum_repo_base_url }}/redhat{{ os_major }}/{{ os_version }}/rhel-{{ os_major }}-for-x86_64-baseos-eus-rpms"
+    gpgcheck: 1
+    gpgkey: "{{ yum_repo_gpgkey }}"
+    os_major: ["8", "9"]
+  - id: "rhel-{{ os_major }}-for-x86_64-supplementary-eus-rpms"
+    name: "Red Hat Enterprise Linux {{ os_major }} for x86_64 - Supplementary EUS (RPMs)"
+    baseurl: "https://{{ yum_repo_base_url }}/redhat{{ os_major }}/{{ os_version }}/rhel-{{ os_major }}-for-x86_64-supplementary-eus-rpms"
+    gpgcheck: 1
+    gpgkey: "{{ yum_repo_gpgkey }}"
+    os_major: ["8", "9"]
+
+  ## Pending approval; uncomment when confirmed
+  # - id: "epel"
+  #   name: "Extra Packages for Enterprise Linux {{ os_major }} - x86_64"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/epel"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-EPEL-{{ os_major }}"
+  #   enabled: 0
+  # - id: "epel-modular"
+  #   name: "Extra Packages (Modular) for Enterprise Linux {{ os_major }} - x86_64"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/epel-modular"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-EPEL-{{ os_major }}"
+  #   enabled: 0
+  # - id: "docker-ce-stable"
+  #   name: "Docker CE Stable - x86_64"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/docker-ce-stable"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-docker-ce"
+  #   enabled: 0
+  # - id: "docker-ce-edge"
+  #   name: "Docker CE Edge - x86_64"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/docker-ce-edge"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-docker-ce"
+  #   enabled: 0
+  # - id: "satellite-client-6-for-rhel-{{ os_major }}-x86_64-rpms"
+  #   name: "Red Hat Satellite Client 6 for RHEL {{ os_major }} x86_64 (RPMs)"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/satellite-client-6-for-rhel-{{ os_major }}-x86_64-rpms"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-redhat-release"
+  #   enabled: 0
+  # - id: "satellite-client-6-for-rhel-{{ os_major }}-x86_64-eus-rpms"
+  #   name: "Red Hat Satellite Client 6 for RHEL {{ os_major }} x86_64 - EUS (RPMs)"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/satellite-client-6-for-rhel-{{ os_major }}-x86_64-eus-rpms"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-redhat-release"
+  #   enabled: 0
+  #   os_major: ["8", "9"]
+  # - id: "codeready-builder-for-rhel-{{ os_major }}-x86_64-rpms"
+  #   name: "Red Hat CodeReady Linux Builder for RHEL {{ os_major }} x86_64 (RPMs)"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/codeready-builder-for-rhel-{{ os_major }}-x86_64-rpms"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-redhat-release"
+  #   enabled: 0
+  # - id: "codeready-builder-for-rhel-{{ os_major }}-x86_64-eus-rpms"
+  #   name: "Red Hat CodeReady Linux Builder for RHEL {{ os_major }} x86_64 - EUS (RPMs)"
+  #   baseurl: "http://{{ yum_repo_base_url }}/redhat{{ os_major }}/codeready-builder-for-rhel-{{ os_major }}-x86_64-eus-rpms"
+  #   gpgcheck: 1
+  #   gpgkey: "https://{{ yum_repo_base_url }}/RPM-GPG-KEY-redhat-release"
+  #   enabled: 0
+  #   os_major: ["8", "9"]
+_profile_specific_build_yum_sources: []
+_cloud_build_yum_sources: []
+build_yum_sources: "{{ _base_build_yum_sources + _profile_specific_build_yum_sources + _cloud_build_yum_sources }}"
+
+# Final-image yum repos (baked into /etc/yum.repos.d/ in the built image). Currently identical to build_yum_sources.
+# If the runtime list needs to diverge from the build list in the future, copy the _base + _profile_specific
+# composition pattern from build_yum_sources above and add _profile_specific_blueprint_yum_repos overrides to the
+# profile files (profile_database.yml, profile_appserver.yml, etc.).
+blueprint_yum_repos: "{{ build_yum_sources }}"

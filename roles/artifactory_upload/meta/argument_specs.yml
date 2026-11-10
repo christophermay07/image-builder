@@ -1,0 +1,38 @@
+---
+argument_specs:
+  main:
+    short_description: Upload producer-selected artifacts
+    options:
+      artifactory_upload_token:
+        type: str
+        description: Shared credential for uploading images, compliance reports, and metadata.
+        required: true
+        no_log: true
+      _builder_host:
+        type: str
+        description: Assigned builder holding the artifact files.
+        required: true
+      build_timestamp:
+        type: str
+        description: Frozen timestamp used in the remote build prefix.
+        required: true
+      artifactory_upload_artifacts:
+        type: list
+        description: Files selected by the producer, with explicit remote filenames.
+        required: true
+        elements: dict
+        options:
+          src:
+            type: str
+            description: Absolute file path on the assigned builder.
+            required: true
+          name:
+            type: str
+            description: Filename beneath the target and timestamp prefix.
+            required: true
+      artifactory_base_url:
+        type: str
+        description: Artifactory endpoint.
+      artifactory_image_repo:
+        type: str
+        description: Artifactory repository key and optional subpath.

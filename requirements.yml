@@ -1,19 +1,23 @@
 ---
+# Supply chain note: Ansible Galaxy does not support checksum or signature
+# verification for collections. Exact version pins are the best available
+# mechanism to prevent silent upgrades. Future mitigation: pre-vet collections
+# and store them in Artifactory so builders pull from an internal trusted
+# source rather than public Galaxy.
 collections:
   - name: amazon.aws
-    version: ">=11.0.0"
+    version: "12.0.0"
   - name: ansible.windows
-    version: ">=3.7.0"
+    version: "3.9.2"
   - name: community.general
-    version: ">=13.0.0"
-  # community.windows is required by the Windows-2022-STIG role
-  # (see its collections/requirements.yml).
+    version: "13.5.0"
+  # community.windows is required by the Windows-2022-STIG role (see its collections/requirements.yml).
   - name: community.windows
-    version: ">=3.3.0"
+    version: "3.3.0"
 
 roles:
   # Ansible Lockdown STIG role for Windows Server 2022.
-  # AAP installs this at project sync time (not baked into the EE).
+  # AAP installs this at project sync; builder_ansible_prepare also installs it in each build workspace.
   #
   # Disconnected / air-gapped environments: clone the upstream repo
   # into an internal GitLab mirror and replace the src URL below

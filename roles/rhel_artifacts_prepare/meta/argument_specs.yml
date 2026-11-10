@@ -1,0 +1,79 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Prepare RHEL metadata and the upload manifest
+    options:
+      _builder_host:
+        type: str
+        description: Assigned builder holding the artifacts.
+        required: true
+      build_timestamp:
+        type: str
+        description: Frozen build timestamp.
+        required: true
+      report_output_dir:
+        type: str
+        description: Directory containing build evidence.
+        required: true
+      cloud_image_result:
+        type: dict
+        description: Native image identity.
+        required: true
+      image_validation_result:
+        type: dict
+        description: Successful validation evidence.
+        required: true
+      os_family:
+        type: str
+        description: OS provenance.
+        required: true
+      os_version:
+        type: str
+        description: OS release provenance.
+        required: true
+      profile:
+        type: str
+        description: Build profile provenance.
+        required: true
+      build_method:
+        type: str
+        description: Build method provenance.
+        required: true
+      cloud_target:
+        type: str
+        description: Cloud provider provenance.
+        required: true
+      prepared_qcow2_sha256:
+        type: str
+        description: Prepared qcow2 checksum.
+        required: true
+      image_output_dir:
+        type: str
+        description: Directory holding the qcow2.
+        required: true
+      builder_work_dir:
+        type: str
+        description: Base directory for builder artifacts; used to derive default output paths.
+      image_version:
+        type: str
+        description: Image version recorded in metadata; defaults to the producer's calendar version.
+      image_version_suffix:
+        type: str
+        description: Suffix appended to the default calendar version.
+      build_compose_uuid:
+        type: str
+        description: Compose identifier recorded by the build; omitted values are recorded as N/A.
+      compose_output_type:
+        type: str
+        description: Compose format recorded in metadata; omitted values are recorded as qcow2.
+      stig_profile:
+        type: str
+        description: OpenSCAP profile recorded in metadata.
+      stig_datastream:
+        type: str
+        description: OpenSCAP datastream recorded in metadata; omitted values are recorded as N/A.
+      stig_unselected_rules:
+        type: list
+        elements: str
+        description: Excluded OpenSCAP rules recorded in metadata; omitted values are recorded as an empty list.

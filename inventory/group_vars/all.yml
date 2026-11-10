@@ -1,82 +1,23 @@
 ---
-# Global defaults applied to all hosts
-
-# Cloud targets for image conversion and distribution
-cloud_targets:
-  - aws
-#  - azure
-#  - gcp
-
-# AWS settings
-# Used by cloud_convert (AWS), image_distribute (AWS), and Packer builds.
-# Future: parallel sections for Azure and GCP will be added here.
-aws_region: us-east-1  # TODO: confirm region
-aws_image_output_bucket: s3://image-pipeline-output  # TODO: confirm bucket name
-
-# S3 bucket used by cloud_convert for AMI import via vmimport.
-ami_import_bucket: "image-pipeline-import"  # TODO: confirm bucket name
-
-# AMI distribution targets
-# Used by image_distribute (copy/share) and ami_cleanup (multi-region deregistration).
-ami_target_regions: []
-ami_target_accounts: []
-
-# AMI retention policy
-# Used by ami_cleanup. Defaults disable cleanup; set real values before production use.
-# keep_count: number of most-recent AMIs to keep per target per region (-1 = keep all).
-# older_than: ISO date (YYYY-MM-DD); AMIs created before this date are deleted regardless
-#   of keep_count. The far-past default effectively disables date-based cleanup.
-ami_cleanup_keep_count: -1
-ami_cleanup_older_than: "2000-01-01"
-
-# AWS credentials; injected at runtime by AAP/Vault.
+# Global defaults applied to all hosts.
 #
-# Today all pipeline functions use one identity. To split later (e.g., separate
-# build / distribute / cleanup roles for least-privilege), override only the
-# function-specific variants below. No role code changes needed.
-#
-# Leave these empty; AAP injects them as extra-vars or env vars at job launch.
-aws_access_key_id: ""
-aws_secret_access_key: ""
-aws_session_token: ""
+# Only settings that are genuinely global belong here: builder infrastructure, Artifactory (cloud-agnostic artifact
+# store), and shared paths. Target-cloud settings (AMI import buckets, distribution, credentials for image operations)
+# live in the cloud dimension group_vars (cloud_aws.yml, cloud_azure.yml, cloud_gcp.yml).
 
-# Per-function overrides; all default to the shared credential above.
-aws_build_access_key_id: "{{ aws_access_key_id }}"
-aws_build_secret_access_key: "{{ aws_secret_access_key }}"
-aws_build_session_token: "{{ aws_session_token }}"
+## Artifactory settings (cloud-agnostic)
 
-aws_distribute_access_key_id: "{{ aws_access_key_id }}"
-aws_distribute_secret_access_key: "{{ aws_secret_access_key }}"
-aws_distribute_session_token: "{{ aws_session_token }}"
-
-aws_cleanup_access_key_id: "{{ aws_access_key_id }}"
-aws_cleanup_secret_access_key: "{{ aws_secret_access_key }}"
-aws_cleanup_session_token: "{{ aws_session_token }}"
-
-# Azure settings (future)
-# azure_subscription_id: ""       # TODO: set when Azure support is implemented
-# azure_resource_group: ""
-# azure_storage_account: ""
-
-# GCP settings (future)
-# gcp_project: ""                 # TODO: set when GCP support is implemented
-# gcp_zone: ""
-# gcp_storage_bucket: ""
-
-# Artifactory settings
-artifactory_base_url: "https://artifactory.internal"  # TODO: confirm URL
+artifactory_base_url: "https://artifactory.example.com"  # TODO: confirm URL
 artifactory_image_repo: "libs-release-local/images"  # TODO: confirm path
 
 # Artifactory credentials; injected at runtime by AAP/Vault.
 #
-# Today all uploads use one token. To split later (e.g., separate write
-# scopes for images vs scan results vs release bundles), override only the
-# function-specific variants below. No role code changes needed.
+# Images, compliance reports, and metadata share one upload credential. Release Bundle creation/signing has its own
+# override. Both default to the shared token injected by AAP/Vault.
 artifactory_token: ""
 
-# Per-function overrides; all default to the shared token above.
-artifactory_token_image_upload: "{{ artifactory_token }}"
-artifactory_token_scan_upload: "{{ artifactory_token }}"
+# Per-function overrides; both default to the shared token above.
+artifactory_upload_token: "{{ artifactory_token }}"
 artifactory_token_release_bundle: "{{ artifactory_token }}"
 
 # Release Bundle settings
@@ -84,63 +25,90 @@ artifactory_token_release_bundle: "{{ artifactory_token }}"
 # Leave empty to create unsigned bundles.
 release_bundle_signing_key: ""  # TODO: set GPG key alias if signing is required
 
+## Builder infrastructure (AWS)
+#
+# Builders currently run on AWS regardless of which cloud the images target. These settings are about the builder EC2
+# instances themselves, not the images they produce.
+
+# Region where builder EC2 instances live.
+aws_builder_region: us-east-1  # TODO: confirm region
+
+# AWS credentials for builder lifecycle (start/stop/provision/teardown).
+# Injected at runtime by AAP/Vault. These are for managing the builder instances, not for image conversion or
+# distribution (those credentials live in cloud_aws.yml).
+aws_builder_access_key_id: ""
+aws_builder_secret_access_key: ""
+aws_builder_session_token: ""
+
 # Builder EC2 instance tags
-# This is the tag filter used in five places:
-#   1. start_builders.yml      - finds stopped/running instances to start
-#   2. stop_builders.yml       - finds running instances to stop
-#   3. provision_builders.yml  - tags new ephemeral instances
-#   4. teardown_builders.yml   - finds ephemeral instances to terminate
-#   5. aws_ec2.yml             - filters which instances appear in inventory
+#
+# This is the tag filter used to start/stop static builders (or eventually provision/destroy ephemeral builders), and to
+# correctly filter the inventory (per aws_ec2.yml).
+#
 # Every builder EC2 instance MUST have these tags or the pipeline can't find it. A second tag (builder_type) is also
-# required on each instance to sort it into the right inventory group (see aws_ec2.yml). Ephemeral instances also get an
-# ephemeral=true tag so teardown can target only them without touching static builders.
+# required on each instance to sort it into the right inventory group (see aws_ec2.yml). Ephemeral instances also get
+# an ephemeral=true tag so teardown can target only them without touching static builders.
 builder_instance_tags:
   purpose: image-builder
 
 # Ephemeral builder settings
-# Used only by provision_builders.yml and teardown_builders.yml.
-# Static builders (start/stop) ignore these entirely.
+# [TODO]
 #
-# To run the ephemeral pipeline, populate the AMI, subnet, SG, and key_name values below, then use site_ephemeral.yml
-# instead of site.yml (or the ephemeral AAP workflow).
-#
-# Builder count per type. Override with --extra-vars for scaling:
-#   -e '{"ephemeral_builder_count": {"osbuild": 3, "packer": 2}}'
-ephemeral_builder_count:
-  osbuild: 1
-  packer: 1
+# Builder count is 1:1 with image targets; provision_builders.yml counts the hosts in method_osbuild / method_packer
+# (respecting --limit) and launches that many instances.
 
-# Pre-baked AMIs with build tooling installed
-# Without these, the configure_builders step installs everything from scratch (slow but works). To create these AMIs,
-# snapshot a configured static builder or build one with Packer.
+# Pre-baked AMIs with build tooling installed. Without these, the configure_builders step installs everything from
+# scratch (slow but works). To create these AMIs, snapshot a configured static builder or build one with Packer.
 ephemeral_builder_ami_osbuild: ""  # TODO: set to pre-baked AMI ID
-ephemeral_builder_ami_packer: ""         # TODO: set to pre-baked AMI ID
+ephemeral_builder_ami_packer: ""   # TODO: set to pre-baked AMI ID
 
-# Instance type for ephemeral builders
+# Instance type for ephemeral builders.
 # Must have enough CPU/memory for osbuild-composer composes and Packer builds.
 ephemeral_builder_instance_type: m5.xlarge
 
-# Network and access settings
-# Must match the VPC where builders need to reach package repos and the AAP controller.
-ephemeral_builder_subnet_id: ""          # TODO: set subnet ID
-ephemeral_builder_security_group: ""     # TODO: set security group ID
-ephemeral_builder_key_name: ""           # TODO: set EC2 key pair name
+# Network and access settings. Must match the VPC where builders need to reach package repos and the AAP controller.
+ephemeral_builder_subnet_id: ""      # TODO: set subnet ID
+ephemeral_builder_security_group: "" # TODO: set security group ID
+ephemeral_builder_key_name: ""       # TODO: set EC2 key pair name
 
-# Inventory group containing the real builder machines for each build method.
-# build_method is defined per method group in method_*.yml; this derives the builder group name from it.
+## Build pipeline settings (shared across all targets)
+
+# Inventory group containing the real builder machines for each build method. build_method is defined per family in
+# .matrix.yml (via method_*.yml group_vars); this derives the builder group name from it.
 #
 # IMPORTANT: this naming convention must stay in sync with aws_ec2.yml, which builds the same group names from the
-# builder_type EC2 tag (tags.builder_type ~ '_builders'). For a new build method, you need all three:
-#   1. A method_<name>.yml          → sets build_method: <name> (phantom-host side)
-#   2. A <name>_builders.yml        → sets builder_type: <name>, builder_packages, etc. (real-host side)
-#   3. EC2 instances tagged builder_type=<name>  (so aws_ec2.yml creates the "<name>_builders" group)
-# The duplication exists because phantom hosts and real hosts are separate inventory populations -- phantom hosts know
-# which method they use (build_method), while EC2 instances know what they are (builder_type). Both derive the same
-# group name independently so the build roles can look up the right builders without cross-population variable access.
-# If the two sides produce different group names, the builder lookup will find an empty group and fail.
-builder_group: "{{ build_method }}_builders"
+# builder_type EC2 tag ('builders_' ~ tags.builder_type). For a new build method, you need:
+#
+#   1. A method_<name>.yml    - sets build_method: <name> (phantom-host)
+#   2. A builders_<name>.yml  - sets builder_type, packages (real-host)
+#   3. EC2 instances tagged builder_type=<name> (for aws_ec2.yml)
+#
+# The duplication exists because phantom hosts and real hosts are separate inventory populations; both derive the same
+# group name independently. If they produce different names, the builder lookup will find an empty group and fail.
+builder_group: "builders_{{ build_method }}"
 
-# Build output paths on the builder host
+# Build output paths on the builder host.
 builder_work_dir: /var/lib/image-builder
 image_output_dir: "{{ builder_work_dir }}/output"
 report_output_dir: "{{ builder_work_dir }}/reports"
+
+## AMI tags (applied to every AMI the pipeline produces)
+#
+# All roles that tag AMIs use this dict as the base set, then combine() any location-specific tags on top (e.g.,
+# source_region on cross-region copies). This keeps tags consistent across cloud_convert, image_distribute, and
+# windows_image_build.
+#
+# build_timestamp was previously duplicated in cloud_convert, producer artifact preparation, artifactory_upload,
+# and artifactory_release_bundle defaults. It lives here now so every role (and ami_base_tags) resolves the same value.
+
+build_timestamp: "{{ ansible_date_time.iso8601 | default(lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ')) }}"
+
+ami_base_tags:
+  Name: "{{ vm_name }}"
+  os_family: "{{ os_family }}"
+  os_version: "{{ os_version }}"
+  profile: "{{ profile }}"
+  stig_applied: "true"
+  fips_enabled: "true"
+  build_timestamp: "{{ build_timestamp }}"
+  build_pipeline: "image-builder"

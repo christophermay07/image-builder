@@ -1,0 +1,29 @@
+---
+# AWS-only source verification; the common publication gate has already checked the publication record.
+- name: Require AWS image scope
+  ansible.builtin.assert:
+    that:
+      - _published_image.location == aws_region
+      - _published_image.image_id is match('^ami-[a-zA-Z0-9]+$')
+    fail_msg: Supply the approved AMI in the configured AWS source region.
+
+- name: Verify approval against the source AMI
+  amazon.aws.ec2_ami_info:
+    image_ids: ["{{ _published_image.image_id }}"]
+    owners: [self]
+    region: "{{ aws_region }}"
+    access_key: "{{ aws_distribute_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_distribute_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_distribute_session_token | default(omit, true) }}"
+  register: _published_image_ami
+  delegate_to: "{{ _builder_host }}"
+
+- name: Require matching AMI build and publication approval
+  ansible.builtin.assert:
+    that:
+      - _published_image_ami.images | length == 1
+      - _published_image_ami.images[0].state == 'available'
+      - _published_image_ami.images[0].tags.image_build_id | default('') == _published_image.build_id
+      - _published_image_ami.images[0].tags.validation_status | default('') == 'passed'
+      - _published_image_ami.images[0].tags.publication_status | default('') == 'published'
+    fail_msg: The source AMI does not match the tested and published build; distribution is blocked.

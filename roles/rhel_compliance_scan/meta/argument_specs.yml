@@ -1,0 +1,46 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for rhel_compliance_scan
+    options:
+      ## Inherited and derived values
+      _builder_host:
+        type: str
+        description: Assigned Linux builder hostname from the build role.
+        required: true
+      vm_name:
+        type: str
+        description: Image target name; normally derived from inventory_hostname.
+
+      ## STIG and compliance
+      stig_datastream:
+        type: str
+        description: OpenSCAP datastream filename under the STIG content directory.
+        required: true
+      stig_profile:
+        type: str
+        description: OpenSCAP profile identifier used for STIG remediation or scanning.
+      stig_content_dir:
+        type: str
+        description: Directory containing the installed OpenSCAP STIG content.
+      oscap_scan_cmd:
+        type: str
+        description: Offline scan command normally derived from STIG and report settings.
+
+      ## Working and output directories
+      builder_work_dir:
+        type: str
+        description: Base directory for builder workspaces and artifacts.
+      image_output_dir:
+        type: str
+        description: Builder directory containing composed images and converted artifacts.
+      image_path:
+        type: str
+        description: Image path normally derived from image_output_dir and vm_name.
+      image_mount_point:
+        type: str
+        description: Builder mount point used for offline image inspection and scanning.
+      report_output_dir:
+        type: str
+        description: Builder directory containing compliance reports and build metadata.

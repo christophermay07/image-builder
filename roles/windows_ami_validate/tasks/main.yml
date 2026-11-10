@@ -1,181 +1,225 @@
 ---
 # Post-AMI compliance validation: boot the AMI, scan it, tear it down.
 #
-# This role runs on the builder host (via delegate_to from the phantom
-# host). It uses the AWS API to launch and terminate a validation
-# instance, and Ansible WinRM to run PowerSTIG on that instance.
+# This role runs on the builder host (via delegate_to from the phantom host). It uses the AWS API to launch and
+# terminate a validation instance, and Ansible WinRM to run PowerSTIG on that instance.
 #
 # Prerequisites:
 #   - windows_ami_id is set (by windows_image_build)
 #   - _builder_host is set (inherited from windows_image_build)
 #   - AWS credentials are available in the environment
-#
-# See ADR-IF-031 for the rationale.
+
+- name: Validate post-AMI scan prerequisites
+  ansible.builtin.assert:
+    that:
+      - windows_ami_id is string and windows_ami_id | trim | length > 0
+      - _builder_host is string and _builder_host | trim | length > 0
+      - builder_ansible_workspace is string and builder_ansible_workspace | trim | length > 0
+      - builder_ansible_bin is string and builder_ansible_bin | trim | length > 0
+      - validate_powerstig_version is string and validate_powerstig_version | trim | length > 0
+      - validate_nuget_provider_version is string and validate_nuget_provider_version | trim | length > 0
+      - validate_compliance_output_dir is string and validate_compliance_output_dir | trim | length > 0
+      - validate_result_prefix is string and validate_result_prefix is match('^[A-Za-z0-9_][A-Za-z0-9_.-]*$')
+      - >-
+        validate_powerstig_manifest_hash is string and
+        (validate_powerstig_manifest_hash | length == 0 or
+         validate_powerstig_manifest_hash is match('^[A-Fa-f0-9]{64}$'))
+    fail_msg: >-
+      Supply the AMI, builder workspace, scan settings, a filename-safe result prefix, and an empty or valid SHA-256 hash.
+
+- name: Require validation guest password
+  ansible.builtin.assert:
+    that:
+      - packer_winrm_password is string and packer_winrm_password | trim | length > 0
+    fail_msg: Supply a non-empty administrator password for the validation guest.
+  no_log: true
+
+- name: Validate WinRM readiness settings
+  ansible.builtin.assert:
+    that:
+      - validate_winrm_port is integer and 1 <= validate_winrm_port <= 65535
+      - validate_winrm_timeout is integer and validate_winrm_timeout > 0
+      - validate_powerstig_stig_id is string and validate_powerstig_stig_id | length > 0
+    fail_msg: Supply a valid WinRM port, a positive integer timeout, and a non-empty STIG checklist.
+
+- name: Require this attempt's produced image
+  ansible.builtin.assert:
+    that:
+      - image_build_id is string
+      - image_build_id is match('^[a-z0-9]{32}$')
+      - cloud_image_result is mapping
+      - cloud_image_result.provider | default('') == 'aws'
+      - cloud_image_result.image_id | default('') == windows_ami_id
+      - cloud_image_result.location | default('') == aws_region
+      - cloud_image_result.build_id | default('') == image_build_id
+    fail_msg: Initialize the build attempt and produce its native image before post-AMI validation.
+
+- name: Clear previous validation evidence
+  ansible.builtin.set_fact:
+    image_validation_result: {}
 
 - name: Set VM name from inventory hostname
   ansible.builtin.set_fact:
     vm_name: "{{ inventory_hostname }}"
 
-# _builder_host is inherited from windows_image_build (set once per
-# phantom host via round-robin). This role does NOT set it.
-
 - name: Template FIPS verification playbook on builder
   ansible.builtin.template:
     src: verify-fips.yml.j2
-    dest: "{{ builder_work_dir }}/packer/{{ vm_name }}-verify-fips.yml"
+    dest: "{{ builder_ansible_workspace }}/{{ vm_name }}-verify-fips.yml"
     mode: "0644"
   delegate_to: "{{ _builder_host }}"
 
-- name: Launch validation instance from AMI
-  amazon.aws.ec2_instance:
-    image_id: "{{ windows_ami_id }}"
-    instance_type: "{{ validate_instance_type }}"
-    region: "{{ aws_region }}"
-    wait: true
-    wait_timeout: 600
-    state: running
-    user_data: "{{ lookup('template', 'validate-userdata.ps1.j2') }}"
-    tags:
-      Name: "{{ vm_name }}-validate"
-      purpose: "image-builder-validation"
-      ephemeral: "true"
-    # Use the same network config as the Packer build.
-    # These variables come from inventory group_vars.
-    vpc_subnet_id: "{{ packer_subnet_id | default(omit) }}"
-    security_group: "{{ validate_security_group | default(omit) }}"
-    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
-    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
-    session_token: "{{ aws_build_session_token | default(omit, true) }}"
-  register: validate_instance
+- name: Write validation scan settings
+  ansible.builtin.copy:
+    content: >-
+      {{ {'powerstig_version': validate_powerstig_version,
+          'powerstig_stig_id': validate_powerstig_stig_id,
+          'powerstig_manifest_hash': validate_powerstig_manifest_hash,
+          'nuget_provider_version': validate_nuget_provider_version,
+          'compliance_output_dir': validate_compliance_output_dir,
+          'validate_compliance_output_dir': validate_compliance_output_dir,
+          'compliance_generate_html': validate_generate_html} | to_nice_yaml }}
+    dest: "{{ builder_ansible_workspace }}/validation.yml"
+    mode: "0600"
   delegate_to: "{{ _builder_host }}"
 
-- name: Record validation instance ID and IP
-  ansible.builtin.set_fact:
-    validate_instance_id: "{{ validate_instance.instances[0].instance_id }}"
-    validate_instance_ip: >-
-      {{ validate_instance.instances[0].public_ip_address
-         | default(validate_instance.instances[0].private_ip_address) }}
-
-- name: Wait for WinRM to become available on validation instance
-  ansible.builtin.wait_for:
-    host: "{{ validate_instance_ip }}"
-    port: "{{ validate_winrm_port }}"
-    timeout: "{{ validate_winrm_timeout }}"
-    state: started
+- name: Preflight validation playbooks
+  ansible.builtin.command:
+    argv:
+      - "{{ builder_ansible_bin }}/ansible-playbook"
+      - --syntax-check
+      - -i
+      - localhost,
+      - -e
+      - "@{{ builder_ansible_workspace }}/validation.yml"
+      - "{{ builder_ansible_workspace }}/{{ vm_name }}-{{ item }}.yml"
+  loop: [verify-fips, scan]
+  environment: "{{ builder_ansible_environment }}"
+  changed_when: false
   delegate_to: "{{ _builder_host }}"
 
-# The child ansible / ansible-playbook commands below inherit ansible.cfg
-# from the builder's working directory. The project-wide config sets
-# become=True / become_method=sudo (correct for every Linux host the
-# outer run touches). These child processes target a Windows instance
-# over WinRM, where sudo does not exist. ANSIBLE_BECOME=false is set at
-# the block level so every child process inherits it automatically; new
-# tasks added to this block do not need to repeat it. The rendered child
-# playbooks also set become: false at the play level for belt-and-suspenders.
-- name: Run post-AMI validation (FIPS verify + PowerSTIG scan)
-  environment:
-    ANSIBLE_HOST_KEY_CHECKING: "false"
-    ANSIBLE_BECOME: "false"
+# Cleanup covers launch, readiness, scan, and report-download failures; approval is recorded only after it succeeds.
+- name: Validate registered image
+  environment: "{{ builder_ansible_environment }}"
   block:
-    - name: Verify FIPS mode on post-AMI instance
-      ansible.builtin.command:
-        cmd: >-
-          ansible-playbook
-          -i '{{ validate_instance_ip }},'
-          -e ansible_connection=winrm
-          -e ansible_winrm_transport=basic
-          -e ansible_winrm_server_cert_validation=ignore
-          -e ansible_port={{ validate_winrm_port }}
-          -e ansible_user=Administrator
-          -e 'ansible_password={{ packer_winrm_password }}'
-          -e 'validate_compliance_output_dir={{ validate_compliance_output_dir }}'
-          {{ builder_work_dir }}/packer/{{ vm_name }}-verify-fips.yml
-      changed_when: false
+    - name: Launch validation instance from AMI
+      amazon.aws.ec2_instance:
+        image_id: "{{ windows_ami_id }}"
+        instance_type: "{{ validate_instance_type }}"
+        region: "{{ aws_region }}"
+        count: 1
+        wait: true
+        wait_timeout: 600
+        state: running
+        user_data: "{{ lookup('template', 'validate-userdata.ps1.j2') }}"
+        tags:
+          Name: "{{ vm_name }}-validate"
+          purpose: "image-builder-validation"
+          ephemeral: "true"
+          image_build_id: "{{ image_build_id }}"
+        # Use the same network config as the Packer build.
+        # These variables come from inventory group_vars.
+        vpc_subnet_id: "{{ packer_subnet_id | default(omit) }}"
+        security_group: "{{ validate_security_group | default(omit) }}"
+        access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+        secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+        session_token: "{{ aws_build_session_token | default(omit, true) }}"
+      register: validate_instance
       delegate_to: "{{ _builder_host }}"
 
-    - name: Run post-AMI compliance scan playbook
+    - name: Record validation instance ID and IP
+      ansible.builtin.set_fact:
+        validate_instance_id: "{{ validate_instance.instances[0].instance_id }}"
+        validate_instance_ip: >-
+          {{ validate_instance.instances[0].public_ip_address
+             | default(validate_instance.instances[0].private_ip_address) }}
+
+    - name: Wait for WinRM on validation instance
+      ansible.builtin.wait_for:
+        host: "{{ validate_instance_ip }}"
+        port: "{{ validate_winrm_port }}"
+        timeout: "{{ validate_winrm_timeout }}"
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Write separate validation connection inventory
+      ansible.builtin.copy:
+        content: >-
+          {{ {'all': {'hosts': {'validation': {
+            'ansible_host': validate_instance_ip, 'ansible_connection': 'winrm',
+            'ansible_winrm_transport': 'basic', 'ansible_winrm_server_cert_validation': 'ignore',
+            'ansible_port': validate_winrm_port, 'ansible_user': 'Administrator',
+            'ansible_password': packer_winrm_password}}}} | to_nice_yaml }}
+        dest: "{{ builder_ansible_workspace }}/validation-inventory.yml"
+        mode: "0600"
+      no_log: true
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Run validation FIPS verification and compliance scan
       ansible.builtin.command:
-        cmd: >-
-          ansible-playbook
-          -i '{{ validate_instance_ip }},'
-          -e ansible_connection=winrm
-          -e ansible_winrm_transport=basic
-          -e ansible_winrm_server_cert_validation=ignore
-          -e ansible_port={{ validate_winrm_port }}
-          -e ansible_user=Administrator
-          -e 'ansible_password={{ packer_winrm_password }}'
-          -e 'powerstig_version={{ validate_powerstig_version }}'
-          -e 'powerstig_stig_id={{ validate_powerstig_stig_id }}'
-          -e 'compliance_output_dir={{ validate_compliance_output_dir }}'
-          -e 'compliance_generate_html={{ validate_generate_html }}'
-          {{ builder_work_dir }}/packer/{{ vm_name }}-scan.yml
+        argv:
+          - "{{ builder_ansible_bin }}/ansible-playbook"
+          - -i
+          - "{{ builder_ansible_workspace }}/validation-inventory.yml"
+          - -e
+          - "@{{ builder_ansible_workspace }}/validation.yml"
+          - "{{ builder_ansible_workspace }}/{{ vm_name }}-{{ item }}.yml"
+      loop: [verify-fips, scan]
       changed_when: true
       delegate_to: "{{ _builder_host }}"
 
-    # Download results from the validation instance to the builder.
-    - name: Download post-AMI scan results from validation instance
+    - name: Download authoritative validation results with post-seal filenames
       ansible.builtin.command:
-        cmd: >-
-          ansible
-          -i '{{ validate_instance_ip }},'
-          -m ansible.windows.win_find
-          -a 'paths={{ validate_compliance_output_dir }} patterns=*'
-          -e ansible_connection=winrm
-          -e ansible_winrm_transport=basic
-          -e ansible_winrm_server_cert_validation=ignore
-          -e ansible_port={{ validate_winrm_port }}
-          -e ansible_user=Administrator
-          -e 'ansible_password={{ packer_winrm_password }}'
-          all
-      register: validate_files_check
-      changed_when: false
-      delegate_to: "{{ _builder_host }}"
-
-    - name: Fetch post-AMI scan results to builder
-      ansible.builtin.command:
-        cmd: >-
-          ansible
-          -i '{{ validate_instance_ip }},'
-          -m ansible.builtin.fetch
-          -a 'src={{ item }} dest={{ report_output_dir }}/{{ vm_name }}/ flat=yes'
-          -e ansible_connection=winrm
-          -e ansible_winrm_transport=basic
-          -e ansible_winrm_server_cert_validation=ignore
-          -e ansible_port={{ validate_winrm_port }}
-          -e ansible_user=Administrator
-          -e 'ansible_password={{ packer_winrm_password }}'
-          all
+        argv:
+          - "{{ builder_ansible_bin }}/ansible"
+          - -i
+          - "{{ builder_ansible_workspace }}/validation-inventory.yml"
+          - -m
+          - ansible.builtin.fetch
+          - -a
+          - >-
+            {{ {'src': validate_compliance_output_dir ~ '\\' ~ item.src,
+                'dest': report_output_dir ~ '/' ~ vm_name ~ '/' ~ item.dest, 'flat': true} | to_json }}
+          - all
       loop:
-        - "{{ validate_compliance_output_dir }}\\stig-results.json"
-        - "{{ validate_compliance_output_dir }}\\stig-report.html"
-        - "{{ validate_compliance_output_dir }}\\fips-verify.json"
-      changed_when: false
-      delegate_to: "{{ _builder_host }}"
-
-    - name: Rename post-AMI results with prefix
-      ansible.builtin.command:
-        cmd: >-
-          mv
-          {{ report_output_dir }}/{{ vm_name }}/{{ item.src }}
-          {{ report_output_dir }}/{{ vm_name }}/{{ item.dest }}
-      loop:
-        - src: stig-results.json
-          dest: "{{ validate_result_prefix }}-stig-results.json"
-        - src: stig-report.html
-          dest: "{{ validate_result_prefix }}-stig-report.html"
+        - {src: pre-seal-stig-results.json, dest: "{{ validate_result_prefix }}-stig-results.json"}
+        - {src: pre-seal-stig-report.html, dest: "{{ validate_result_prefix }}-stig-report.html"}
+        - {src: fips-verify.json, dest: fips-verify.json}
+      when: item.src != 'pre-seal-stig-report.html' or validate_generate_html | bool
       changed_when: true
       delegate_to: "{{ _builder_host }}"
 
   always:
-    # Terminate the validation instance regardless of scan outcome.
+    - name: Remove validation inventory (holds the WinRM password)
+      ansible.builtin.file:
+        path: "{{ builder_ansible_workspace }}/validation-inventory.yml"
+        state: absent
+      delegate_to: "{{ _builder_host }}"
+
     - name: Terminate validation instance
       amazon.aws.ec2_instance:
-        instance_ids:
-          - "{{ validate_instance_id }}"
+        filters:
+          "tag:image_build_id": "{{ image_build_id }}"
+          "tag:purpose": image-builder-validation
+          instance-state-name: [pending, running, stopping, stopped, shutting-down]
         region: "{{ aws_region }}"
         state: terminated
+        wait: true
+        wait_timeout: 600
         access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
         secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
         session_token: "{{ aws_build_session_token | default(omit, true) }}"
-      when: validate_instance_id is defined
       delegate_to: "{{ _builder_host }}"
+
+- name: Record successful native-image validation
+  ansible.builtin.set_fact:
+    image_validation_result:
+      target: "{{ inventory_hostname }}"
+      provider: aws
+      image_id: "{{ windows_ami_id }}"
+      location: "{{ aws_region }}"
+      build_id: "{{ image_build_id }}"
+      build_timestamp: "{{ build_timestamp }}"
+      status: passed
+      cleanup_status: passed
+      validation_method: winrm-fips-stig
+      tested_at: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"

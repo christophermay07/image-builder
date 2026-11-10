@@ -1,0 +1,56 @@
+---
+# Pinned external dependency versions and SHA-256 checksums.
+#
+# This file is the single source of truth for supply chain verification.
+# Edit versions here, then run:
+#
+#   python .refresh_checksums.py          # fetch + write checksums
+#   python .refresh_checksums.py --check  # CI: exit 1 if stale
+#   python .refresh_checksums.py --dry-run # preview without writing
+#
+# PowerSTIG and NuGet hashes require a Windows environment and must be
+# updated manually (see the Supply Chain Verification section in README.md).
+
+packer:
+  version: "1.16.1"
+  platform: linux_amd64
+  sha256: "af38a9e93e4ed1b9ca68206ae969c64c300c82a3dde46a780dfa629f0867f651"
+
+pip_packages:
+  - name: ansible-core
+    version: "2.19.11"
+    sha256: "c39612b1f55a3321445a09eaee43f59ca6c849483792088a4767b97d8fe8580f"
+  - name: pywinrm
+    version: "0.5.0"
+    sha256: "c267046d281de613fc7c8a528cdd261564d9b99bdb7c2926221eff3263b700c8"
+
+packer_plugins:
+  - name: amazon
+    source: "github.com/hashicorp/amazon"
+    version: "1.8.3"
+  - name: ansible
+    source: "github.com/hashicorp/ansible"
+    version: "1.1.6"
+
+ansible_collections:
+  - name: amazon.aws
+    version: "12.0.0"
+    sha256: "521982d74fa6a5268887fc1b9aff5477b89fb8889a1428a05737ff5615f26685"
+  - name: ansible.windows
+    version: "3.9.2"
+    sha256: "d1452eb1fa6b55ec75a81be32daa08e9ab0d5086dc3ad5ec8687e3a80b366422"
+  - name: community.general
+    version: "13.5.0"
+    sha256: "54598287e0ea0504aee2d32c884208ddf26f3ac41e0b4e773ff514af210787c4"
+  - name: community.windows
+    version: "3.3.0"
+    sha256: "af9208b73c3cd4d1b56b908cb9ac99ed81bd1498deff08b193dee95a2fa23f0e"
+
+# Windows-only dependencies (hashes must be gathered manually).
+# See windows_compliance_scan/defaults/main.yml for instructions.
+powerstig:
+  version: "4.30.0"
+  manifest_hash: ""  # TODO: populate from a trusted Windows install
+
+nuget_provider:
+  version: "2.8.5.201"

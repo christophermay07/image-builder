@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: ""
+  license: ""
+  role_name: windows_artifacts_prepare
+  description: "Prepare Windows release metadata and artifact list"
+  min_ansible_version: "2.16"
+dependencies: []

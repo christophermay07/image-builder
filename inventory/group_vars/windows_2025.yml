@@ -2,3 +2,14 @@
 # Windows Server 2025 version-specific settings
 os_version: "2025"
 source_ami: "ami-0abcdef1234567890"  # TODO: confirm source AMI ID
+
+# STIG checklist ID passed to PowerSTIG. Must match the Windows Server
+# version so that the correct benchmark is evaluated.
+# TODO: confirm the PowerSTIG STIG ID once the Server 2025 benchmark ships.
+powerstig_stig_id: "WindowsServer-2025-MS"
+
+# Ansible Lockdown STIG role for remediation. Installed as a standalone
+# role from GitHub (see requirements.yml). Also read by
+# windows_image_build metadata templates via | default('N/A').
+# TODO: update to the actual Ansible Lockdown Server 2025 STIG role name.
+windows_stig_role: "win2025stig"

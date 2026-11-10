@@ -1,6 +1,6 @@
 ---
 galaxy_info:
-  author: "the client"
+  author: ""
   license: ""
   role_name: image_distribute
   description: "Distribute AMIs across AWS regions and accounts"

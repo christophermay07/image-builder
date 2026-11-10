@@ -1,0 +1,4 @@
+---
+# Ubuntu 24.04 LTS version-specific settings
+os_version: "24.04"
+source_ami: "ami-0abcdef1234567890"  # TODO: confirm source AMI ID

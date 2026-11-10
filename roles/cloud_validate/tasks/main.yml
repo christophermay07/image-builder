@@ -1,0 +1,64 @@
+---
+# Keep target-cloud selection inside roles; the build playbook uses one stage sequence for every cloud.
+- name: Validate cloud dispatch
+  ansible.builtin.assert:
+    that:
+      - group_names | intersect(['cloud_aws', 'cloud_azure', 'cloud_gcp']) | length == 1
+      - cloud_target is string
+      - ('cloud_' ~ cloud_target) in group_names
+    fail_msg: Set cloud_target to match exactly one supported cloud group (aws, azure, or gcp).
+
+- name: Require a registered image from this build attempt
+  ansible.builtin.assert:
+    that:
+      - image_build_id is string
+      - image_build_id is match('^[a-z0-9]{32}$')
+      - build_timestamp is string
+      - build_timestamp | length > 0
+      - prepared_qcow2_sha256 is string
+      - prepared_qcow2_sha256 is match('^[a-f0-9]{64}$')
+      - cloud_image_result is mapping
+      - cloud_image_result.provider | default('') == cloud_target
+      - cloud_image_result.build_id | default('') == image_build_id
+      - cloud_image_result.qcow2_sha256 | default('') == prepared_qcow2_sha256
+      - cloud_image_result.image_id | default('') is string
+      - cloud_image_result.image_id | default('') | length > 0
+      - cloud_image_result.location | default('') is string
+      - cloud_image_result.location | default('') | length > 0
+    fail_msg: Run prepare and convert for this build attempt before validating the registered cloud image.
+
+- name: Clear previous smoke-test evidence
+  ansible.builtin.set_fact:
+    image_validation_result: {}
+
+- name: Validate AWS image
+  ansible.builtin.include_tasks: validate_aws.yml
+  when: "'cloud_aws' in group_names"
+
+- name: Validate Azure image
+  ansible.builtin.include_tasks: validate_azure.yml
+  when: "'cloud_azure' in group_names"
+
+- name: Validate GCP image
+  ansible.builtin.include_tasks: validate_gcp.yml
+  when: "'cloud_gcp' in group_names"
+
+# A handler cannot grant approval by returning successfully without actually recording test and cleanup evidence.
+- name: Require successful cloud smoke test and cleanup
+  ansible.builtin.assert:
+    that:
+      - image_validation_result is mapping
+      - image_validation_result.status | default('') == 'passed'
+      - image_validation_result.cleanup_status | default('') == 'passed'
+      - image_validation_result.target | default('') == inventory_hostname
+      - image_validation_result.provider | default('') == cloud_target
+      - image_validation_result.build_id | default('') == image_build_id
+      - image_validation_result.build_timestamp | default('') == build_timestamp
+      - image_validation_result.image_id | default('') == cloud_image_result.image_id
+      - image_validation_result.location | default('') == cloud_image_result.location
+      - image_validation_result.qcow2_sha256 | default('') == prepared_qcow2_sha256
+      - image_validation_result.username | default('') is string
+      - image_validation_result.username | default('') | length > 0
+      - image_validation_result.tested_at | default('') is string
+      - image_validation_result.tested_at | default('') | length > 0
+    fail_msg: The provider must record successful SSH authentication and cleanup for this build's registered image.

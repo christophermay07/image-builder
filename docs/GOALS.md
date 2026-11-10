@@ -2,7 +2,7 @@
 
 ## What This Project Is and Why It Exists
 
-The client needs a **secure image build factory,** which is a single, repeatable pipeline that produces hardened VM images
+author needs a **secure image build factory,** which is a single, repeatable pipeline that produces hardened VM images
 and delivers them to clients.
 
 Clients run in **multiple clouds** (AWS, Azure, GCP today; others possible in the future) and on **multiple operating
@@ -12,8 +12,8 @@ proving it. The pipeline is the authoritative source for every golden image the 
 The goal is **one process** that:
 
 1. Builds a hardened base image for each supported OS version.
-2. Layers product-specific configurations on top of the base to produce **profiled images** (e.g., an POC image that
-   includes the packages and settings POC requires).
+2. Layers product-specific configurations on top of the base to produce **profiled images** (e.g., a database workload image that
+   includes the packages and settings database workload requires).
 3. Converts each image to the cloud-native format for every target cloud.
 4. Pushes the image, compliance artifacts, and metadata to Artifactory as a release bundle.
 5. Distributes the image to the appropriate cloud accounts.
@@ -46,10 +46,14 @@ to that product.
 Today:
 
 - **base:** hardened OS with FIPS enabled, STIG applied, cloud-init configured.
-- **poc:** base + POC-specific packages, filesystem layout adjustments, and any STIG rule tailoring required by POC.
+- **appserver:** base + application server packages, configuration, and any STIG rule tailoring required by the application
+  NetWeaver / ERP application application servers.
+- **database:** base + database workload-specific packages, filesystem layout adjustments (e.g., /data/db, /data/log), and
+  tuning.
+- **jumphost:** base + bastion/jumphost configuration for Windows.
+- **k8s-node:** base + Kubernetes node configuration for Ubuntu.
 
-In the future, additional profiles may appear: other products, variations that split POC into sub-profiles, or profiles
-for entirely different workloads.
+In the future, additional profiles may appear for other application products or entirely different workloads.
 
 ### Profile composition rules
 
@@ -64,7 +68,7 @@ Every profile is **base + that profile's additions**. Composition is strictly ad
 ### What is out of scope
 
 **Aggregated profiles.** The pipeline does not support combining two non-base profiles into a single image. Each image
-is exactly "base + one profile." There is no mechanism for producing "base + POC + SomeOtherProduct" without creating
+is exactly "base + one profile." There is no mechanism for producing "base + database workload + SomeOtherProduct" without creating
 a new, dedicated profile that carries the combined configuration of both. If that need arises, the answer is a new
 profile, not a composition engine.
 
@@ -137,7 +141,7 @@ re-initialization all modify system state after the pre-seal scan. See
 All image building happens in **AWS**. Builder EC2 instances live in a build account and are managed with a stop/start
 lifecycle: stopped between pipeline runs, started automatically at the beginning of each run by the AAP workflow.
 
-Two builder instances handle the full matrix:
+The following builder types handle the full matrix:
 
 | Builder                | What it builds                      | Tools                                                 |
 |------------------------|-------------------------------------|-------------------------------------------------------|
@@ -187,8 +191,8 @@ independent copies, build-side cleanup does not affect them. Each side manages i
 
 ### Adding to the build matrix
 
-The inventory uses a four-dimensional phantom-host model (OS family, OS version, profile, build method). Adding a new
-image variant means:
+The inventory uses a five-dimensional phantom-host model (OS family, OS version, profile, build method, cloud
+provider). Adding a new image variant means:
 
 - **New OS version:** Add a phantom host entry and a `group_vars` file with the version-specific variables.
 - **New profile:** Add a profile group, its `group_vars` file with profile-specific packages and tailoring, and a
@@ -229,4 +233,5 @@ The pipeline reports all failures at the end, after every target has had its cha
 ### Infrastructure prerequisites
 
 The pipeline builds images but does not provision its own infrastructure. Builder EC2 instances, network connectivity,
-Vault paths, Artifactory repositories, AAP configuration, and RHEL entitlements must all exist before the first run.
+Vault paths, Artifactory repositories, AAP configuration, and RHEL entitlements must all exist before the first run. The
+full list is tracked in [OPEN-REQUIREMENTS.md](OPEN-REQUIREMENTS.md).

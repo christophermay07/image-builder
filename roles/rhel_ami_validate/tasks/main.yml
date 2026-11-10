@@ -1,0 +1,236 @@
+---
+# Test normal cloud-init login without user-data that repairs SSH.
+- name: Validate smoke-test prerequisites
+  ansible.builtin.assert:
+    that:
+      - _builder_host is string
+      - _builder_host | trim | length > 0
+      - aws_ami_id is string
+      - aws_ami_id | trim | length > 0
+      - image_build_id is string
+      - image_build_id | trim | length > 0
+      - build_timestamp is string
+      - build_timestamp | trim | length > 0
+      - prepared_qcow2_sha256 is string
+      - prepared_qcow2_sha256 | trim | length > 0
+      - builder_work_dir is string
+      - builder_work_dir | trim | length > 0
+      - aws_region is string
+      - aws_region | trim | length > 0
+      - rhel_smoke_subnet_id is string
+      - rhel_smoke_subnet_id | trim | length > 0
+      - rhel_smoke_instance_type is string
+      - rhel_smoke_instance_type | trim | length > 0
+      - rhel_smoke_ssh_user is string
+      - rhel_smoke_ssh_user | trim | length > 0
+      - image_build_id is match('^[a-z0-9]{32}$')
+      - prepared_qcow2_sha256 is match('^[a-f0-9]{64}$')
+      - rhel_smoke_ssh_user is match('^[a-z_][a-z0-9_-]*[$]?$')
+      - rhel_smoke_security_group_ids is sequence
+      - rhel_smoke_security_group_ids is not string
+      - rhel_smoke_security_group_ids is not mapping
+      - rhel_smoke_security_group_ids | length > 0
+      - rhel_smoke_ssh_port is integer
+      - rhel_smoke_ssh_port >= 1
+      - rhel_smoke_ssh_port <= 65535
+      - rhel_smoke_ssh_timeout is integer
+      - rhel_smoke_ssh_timeout >= 15
+    fail_msg: >-
+      Supply the imported AMI, current build identity and prepared-image checksum, and assigned builder.
+      Set a reachable subnet, SSH security groups, login user, valid port, and timeout of at least 15 seconds.
+
+# Bind the guest to the canonical disk imported in this attempt, including when tags select only some stages.
+- name: Require AMI import from this prepared image
+  ansible.builtin.assert:
+    that:
+      - cloud_image_result is mapping
+      - cloud_image_result.build_id | default('') == image_build_id
+      - cloud_image_result.provider | default('') == 'aws'
+      - cloud_image_result.image_id | default('') == aws_ami_id
+      - cloud_image_result.location | default('') == aws_region
+      - cloud_image_result.qcow2_sha256 | default('') == prepared_qcow2_sha256
+    fail_msg: Run prepare and convert in this build attempt before smoke testing the imported AMI.
+
+- name: Validate smoke-test security groups
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item | trim | length > 0
+    fail_msg: Supply non-empty security group IDs allowing SSH from the builder.
+  loop: "{{ rhel_smoke_security_group_ids }}"
+
+- name: Initialize smoke-test state
+  ansible.builtin.set_fact:
+    image_validation_result: {}
+    _rhel_smoke_error: ''
+    _rhel_smoke_cleanup_errors: []
+    _rhel_smoke_workspace: {}
+    _rhel_smoke_key_name: "rhel-smoke-{{ image_build_id }}"
+
+- name: Mark AMI unapproved before smoke test
+  amazon.aws.ec2_tag:
+    resource: "{{ aws_ami_id }}"
+    tags:
+      image_build_id: "{{ image_build_id }}"
+      validation_status: failed
+      publication_status: pending
+    region: "{{ aws_region }}"
+    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_build_session_token | default(omit, true) }}"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Boot and authenticate to imported image
+  block:
+    - name: Create private smoke-test workspace
+      ansible.builtin.tempfile:
+        state: directory
+        path: "{{ builder_work_dir }}"
+        prefix: "smoke-{{ image_build_id }}-"
+      register: _rhel_smoke_workspace
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Generate temporary SSH key on builder
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -q
+          - -t
+          - rsa
+          - -b
+          - '3072'
+          - -N
+          - ''
+          - -f
+          - "{{ _rhel_smoke_workspace.path }}/id_rsa"
+      delegate_to: "{{ _builder_host }}"
+      changed_when: true
+      no_log: true
+
+    - name: Read temporary public key
+      ansible.builtin.slurp:
+        src: "{{ _rhel_smoke_workspace.path }}/id_rsa.pub"
+      register: _rhel_smoke_public_key
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Register temporary EC2 key pair
+      amazon.aws.ec2_key:
+        name: "{{ _rhel_smoke_key_name }}"
+        key_material: "{{ _rhel_smoke_public_key.content | b64decode }}"
+        tags:
+          purpose: image-builder-validation
+          image_build_id: "{{ image_build_id }}"
+        region: "{{ aws_region }}"
+        access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+        secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+        session_token: "{{ aws_build_session_token | default(omit, true) }}"
+      delegate_to: "{{ _builder_host }}"
+
+    - name: Launch RHEL smoke-test instance
+      amazon.aws.ec2_instance:
+        image_id: "{{ aws_ami_id }}"
+        instance_type: "{{ rhel_smoke_instance_type }}"
+        key_name: "{{ _rhel_smoke_key_name }}"
+        count: 1
+        state: running
+        wait: true
+        wait_timeout: 600
+        network_interfaces:
+          - device_index: 0
+            subnet_id: "{{ rhel_smoke_subnet_id }}"
+            groups: "{{ rhel_smoke_security_group_ids }}"
+            assign_public_ip: false
+            delete_on_termination: true
+        tags:
+          purpose: image-builder-validation
+          image_build_id: "{{ image_build_id }}"
+          Name: "{{ inventory_hostname }}-smoke-{{ image_build_id }}"
+          ephemeral: 'true'
+        region: "{{ aws_region }}"
+        access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+        secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+        session_token: "{{ aws_build_session_token | default(omit, true) }}"
+      delegate_to: "{{ _builder_host }}"
+      register: _rhel_smoke_instance
+
+    # Bound the complete SSH attempt, including authentication and remote command execution.
+    - name: Require authenticated SSH and expected login user
+      ansible.builtin.command:
+        argv:
+          - timeout
+          - '10'
+          - ssh
+          - -F
+          - /dev/null
+          - -i
+          - "{{ _rhel_smoke_workspace.path }}/id_rsa"
+          - -p
+          - "{{ rhel_smoke_ssh_port | string }}"
+          - -o
+          - BatchMode=yes
+          - -o
+          - IdentitiesOnly=yes
+          - -o
+          - IdentityAgent=none
+          - -o
+          - ConnectTimeout=10
+          - -o
+          - StrictHostKeyChecking=accept-new
+          - -o
+          - "UserKnownHostsFile={{ _rhel_smoke_workspace.path }}/known_hosts"
+          - -o
+          - GlobalKnownHostsFile=/dev/null
+          - "{{ rhel_smoke_ssh_user }}@{{ _rhel_smoke_instance.instances[0].private_ip_address }}"
+          - id -un
+      delegate_to: "{{ _builder_host }}"
+      register: _rhel_smoke_ssh
+      changed_when: false
+      until:
+        - _rhel_smoke_ssh.rc == 0
+        - _rhel_smoke_ssh.stdout | trim == rhel_smoke_ssh_user
+      retries: "{{ [((rhel_smoke_ssh_timeout // 15) - 1), 0] | max }}"
+      delay: 5
+  rescue:
+    - name: Record smoke-test failure for retained AMI
+      ansible.builtin.set_fact:
+        _rhel_smoke_error: >-
+          {{ ansible_failed_task.name }}: {{ ansible_failed_result.msg | default('SSH login did not succeed') }}
+  always:
+    - name: Clean up temporary smoke-test resources
+      ansible.builtin.include_tasks: cleanup.yml
+
+- name: Require smoke test and cleanup to succeed
+  ansible.builtin.assert:
+    that:
+      - _rhel_smoke_error | length == 0
+      - _rhel_smoke_cleanup_errors | length == 0
+    fail_msg: >-
+      AMI {{ aws_ami_id }} retained without publication approval.
+      Test failure: {{ _rhel_smoke_error }}.
+      Cleanup failures: {{ _rhel_smoke_cleanup_errors | join('; ') }}.
+
+- name: Mark AMI smoke test passed
+  amazon.aws.ec2_tag:
+    resource: "{{ aws_ami_id }}"
+    tags:
+      validation_status: passed
+    region: "{{ aws_region }}"
+    access_key: "{{ aws_build_access_key_id | default(omit, true) }}"
+    secret_key: "{{ aws_build_secret_access_key | default(omit, true) }}"
+    session_token: "{{ aws_build_session_token | default(omit, true) }}"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Record successful smoke-test evidence
+  ansible.builtin.set_fact:
+    image_validation_result:
+      target: "{{ inventory_hostname }}"
+      build_id: "{{ image_build_id }}"
+      build_timestamp: "{{ build_timestamp }}"
+      provider: aws
+      image_id: "{{ aws_ami_id }}"
+      location: "{{ aws_region }}"
+      qcow2_sha256: "{{ prepared_qcow2_sha256 }}"
+      status: passed
+      cleanup_status: passed
+      tested_at: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+      username: "{{ rhel_smoke_ssh_user }}"

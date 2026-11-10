@@ -1,6 +1,6 @@
 ---
 # Clean up old AMIs and their backing EBS snapshots per phantom host. Targets all vm_targets; narrow with --limit
-# (e.g., --limit rhel9_targets, --limit rhel-9.4-base). Use --check for a dry run that logs what would be deleted.
+# (e.g., --limit 'rhel_9_*', --limit rhel-9.4-base-aws). Use --check for a dry run that logs what would be deleted.
 #
 # Retention is controlled by two variables (override via --extra-vars or AAP survey):
 #   ami_cleanup_keep_count: -1          # keep last N per host per region; -1 disables

@@ -128,7 +128,7 @@ the parameter path instead of a hardcoded AMI ID or tag query.
 
 ```
 /golden-images/rhel-9.4/base/latest    → ami-0abc123def456
-/golden-images/rhel-9.4/poc/latest     → ami-0def789abc012
+/golden-images/rhel-9.4/database/latest    → ami-0def789abc012
 /golden-images/win2022/base/latest     → ami-0ghi345jkl678
 ```
 

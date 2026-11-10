@@ -1,0 +1,13 @@
+---
+# All image producers enter provider distribution only after the same publication gate.
+- name: Distribute approved AWS image
+  ansible.builtin.include_tasks: distribute_aws.yml
+  when: "'cloud_aws' in group_names"
+
+- name: Distribute Azure image
+  ansible.builtin.include_tasks: distribute_azure.yml
+  when: "'cloud_azure' in group_names"
+
+- name: Distribute GCP image
+  ansible.builtin.include_tasks: distribute_gcp.yml
+  when: "'cloud_gcp' in group_names"

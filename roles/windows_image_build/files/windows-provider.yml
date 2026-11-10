@@ -1,0 +1,9 @@
+---
+# Preflight playbook: statically load the selected provider during syntax checking without contacting a guest.
+# The child Ansible process resolves windows_stig_role from the hardening.yml variable payload.
+- name: Check selected hardening provider
+  hosts: all
+  gather_facts: false
+  become: false
+  roles:
+    - role: "{{ windows_stig_role }}"

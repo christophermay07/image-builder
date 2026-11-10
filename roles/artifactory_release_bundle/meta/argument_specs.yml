@@ -1,0 +1,36 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for artifactory_release_bundle
+    options:
+      ## Secrets
+      artifactory_token_release_bundle:
+        type: str
+        description: Injected API token for creating and signing Artifactory release bundles.
+        required: true
+        no_log: true
+
+      ## Inherited and derived values
+      _builder_host:
+        type: str
+        description: Assigned Linux builder hostname from the build role.
+        required: true
+      build_timestamp:
+        type: str
+        description: Shared build timestamp used for artifact paths and release versioning.
+        required: true
+      vm_name:
+        type: str
+        description: Image target name; normally derived from inventory_hostname.
+
+      ## Artifactory publication
+      artifactory_base_url:
+        type: str
+        description: Base URL of the Artifactory service used for publication.
+      artifactory_image_repo:
+        type: str
+        description: Artifactory repository key and optional subpath containing image artifacts.
+      release_bundle_signing_key:
+        type: str
+        description: Server-side signing key alias; empty leaves the release bundle unsigned.

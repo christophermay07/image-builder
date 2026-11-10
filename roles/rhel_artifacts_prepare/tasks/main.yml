@@ -1,0 +1,46 @@
+---
+# The producer checks its prepared source disk before constructing the upload manifest.
+- name: Require validation of the prepared qcow2
+  ansible.builtin.assert:
+    that:
+      - prepared_qcow2_sha256 is string
+      - prepared_qcow2_sha256 is match('^[a-f0-9]{64}$')
+      - cloud_image_result.qcow2_sha256 | default('') == prepared_qcow2_sha256
+      - image_validation_result.qcow2_sha256 | default('') == prepared_qcow2_sha256
+    fail_msg: Run prepare, convert, and smoke for this qcow2 build attempt before exporting to Artifactory.
+
+- name: Check current qcow2 checksum before publication
+  ansible.builtin.stat:
+    path: "{{ image_output_dir }}/{{ inventory_hostname }}.qcow2"
+    checksum_algorithm: sha256
+  register: _prepared_artifact_image
+  delegate_to: "{{ _builder_host }}"
+
+- name: Require the validated qcow2 to be unchanged
+  ansible.builtin.assert:
+    that:
+      - _prepared_artifact_image.stat.checksum | default('') == image_validation_result.qcow2_sha256
+    fail_msg: The qcow2 changed after preparation; repeat conversion and the SSH smoke test before publication.
+
+- name: Set artifact target name
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Generate build metadata
+  ansible.builtin.template:
+    src: build-metadata.json.j2
+    dest: "{{ report_output_dir }}/{{ vm_name }}-build-metadata.json"
+    mode: "0644"
+  delegate_to: "{{ _builder_host }}"
+
+- name: Select RHEL build artifacts for upload
+  ansible.builtin.set_fact:
+    artifactory_upload_artifacts:
+      - src: "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+        name: "{{ vm_name }}.qcow2"
+      - src: "{{ report_output_dir }}/{{ vm_name }}-oscap-report.html"
+        name: oscap-report.html
+      - src: "{{ report_output_dir }}/{{ vm_name }}-oscap-results.xml"
+        name: oscap-results.xml
+      - src: "{{ report_output_dir }}/{{ vm_name }}-build-metadata.json"
+        name: build-metadata.json

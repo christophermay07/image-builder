@@ -1,6 +1,6 @@
 ---
 galaxy_info:
-  author: "the client"
+  author: ""
   license: ""
   role_name: ami_cleanup
   description: "Deregister old AMIs by age/count policy"

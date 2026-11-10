@@ -1,0 +1,8 @@
+---
+galaxy_info:
+  author: ""
+  license: ""
+  role_name: cloud_validate
+  description: "Dispatch cloud image boot and SSH validation before publication"
+  min_ansible_version: "2.16"
+dependencies: []

@@ -1,8 +1,0 @@
----
-galaxy_info:
-  author: "the client"
-  license: ""
-  role_name: rhel_hardening
-  description: "Validate FIPS configuration and run offline STIG compliance scan"
-  min_ansible_version: "2.16"
-dependencies: []

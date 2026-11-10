@@ -1,0 +1,84 @@
+---
+# Build Matrix Definition
+#
+# This file defines the build matrix axes. The generator script (.generate_targets.py) reads it and produces targets.yml
+# with every phantom host placed in all dimension groups automatically.
+#
+# Regenerate after editing:
+#   python inventory/.generate_targets.py
+#
+# See inventory/README.md for documentation on the inventory model (phantom hosts, dimensions, group_vars layering).
+
+# Default clouds applied to every OS version unless overridden.
+# To restrict an OS version to a subset, set clouds directly on that entry.
+defaults:
+  clouds:
+    - aws
+    - azure
+    - gcp
+
+# Per-family defaults. Every OS version inherits its family's settings unless overridden on the entry itself.
+#
+#   method:   build method (Dimension 4).
+#   profiles: workload profiles (Dimension 3).
+families:
+  rhel_targets:
+    method: method_osbuild
+    profiles:
+      - base
+      - appserver
+      - database
+  windows_targets:
+    method: method_packer
+    profiles:
+      - base
+      - jumphost
+  ubuntu_targets:
+    method: method_packer
+    profiles:
+      - base
+      - k8s-node
+
+# Each entry produces one phantom host per profile x cloud combination.
+#
+# Resolution order for each setting:
+#   profiles: entry -> family -> defaults
+#   method:   entry -> family (required at one of these levels)
+#   clouds:   entry -> defaults
+#
+#   family:        Dimension 1 group (OS family). Also determines default profiles and method.
+#   version_group: Dimension 2 group (OS version within a family).
+#   method:        (optional) Override the family's build method.
+#   profiles:      (optional) Override the family's profile list.
+#   clouds:        (optional) Override the default cloud list.
+os_versions:
+  rhel-8.10:
+    family: rhel_targets
+    version_group: rhel_8_10
+  rhel-9.2:
+    family: rhel_targets
+    version_group: rhel_9_2
+  rhel-9.4:
+    family: rhel_targets
+    version_group: rhel_9_4
+  rhel-9.6:
+    family: rhel_targets
+    version_group: rhel_9_6
+  rhel-9.8:
+    family: rhel_targets
+    version_group: rhel_9_8
+  windows-2022:
+    family: windows_targets
+    version_group: windows_2022
+  windows-2025:
+    family: windows_targets
+    version_group: windows_2025
+  ubuntu-22.04:
+    family: ubuntu_targets
+    version_group: ubuntu_22_04
+  ubuntu-24.04:
+    family: ubuntu_targets
+    version_group: ubuntu_24_04
+  ubuntu-26.04:
+    family: ubuntu_targets
+    version_group: ubuntu_26_04

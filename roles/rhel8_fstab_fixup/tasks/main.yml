@@ -1,18 +1,57 @@
 ---
-# Fix RHEL 8 /etc/fstab issues caused by building on a RHEL 9 host.
+## RHEL 8-only fstab workaround - do not extend to RHEL 9+
+#
+# This role is a RHEL 8-specific legacy fix. Retire it when RHEL 8 support is dropped. Do not use it as a
+# template for new post-compose edits on any OS version.
+#
+# virt-edit is a last resort. Prefer blueprint customizations ([customizations.*]), STIG tailoring
+# (stig_unselected_rules), or guestmount (read-write) before reaching for virt-edit. This role uses virt-edit
+# only because none of those alternatives can fix the problem here:
+#
+#   - STIG remediation runs LAST in the osbuild-composer pipeline, after [[customizations.files]] and RPM
+#     %post scriptlets have already executed. Writing a clean /etc/fstab via the blueprint is pointless;
+#     the STIG pass overwrites it.
+#   - Deselecting the responsible STIG rules via tailoring would leave those controls unaddressed, which is
+#     not acceptable for compliance.
+#
+# The ideal fix is upstream in scap-security-guide (the remediation should not copy the builder's mounts into
+# the target image). Until that happens, virt-edit is the only option that runs after the compose is sealed.
 #
 # Two problems addressed:
-#   1. RHEL 9 builders force inode64 in tmpfs mount options. RHEL 8 kernels don't understand inode64, so it breaks boot.
-#   2. The RHEL 8 STIG profile copies a /proc/cmdline tmpfs mount from the builder host into /etc/fstab. That mount
-#      doesn't exist on the target system, so it breaks boot.
+#   1. RHEL 9 builders default inode64 on tmpfs mounts. RHEL 8 kernels don't understand inode64, so it breaks
+#      boot. (Building on a RHEL 8 builder would avoid this one, but not problem 2.)
+#   2. The STIG remediation copies a /proc/cmdline tmpfs mount from the builder host into /etc/fstab. That
+#      mount doesn't exist on the target system, so it breaks boot. This happens regardless of the builder's
+#      OS version.
 #
-# Only runs for RHEL 8 images. Removing inode64 on RHEL 9+ would be incorrect (it's a valid default there).
+# RHEL 9+ images are not affected: inode64 is valid there, and the RHEL 9 STIG remediation does not produce
+# the stale /proc/cmdline entry.
+#
+# See also: roles/rhel8_fstab_fixup/README.md and docs/PACKER-POST-COMPOSE-STEP.md (decision hierarchy).
 
 # _builder_host is inherited from rhel_image_build (set once per phantom host via round-robin; see that role).
+
+- name: Validate RHEL 8 image editing prerequisites
+  ansible.builtin.assert:
+    that:
+      - _builder_host is string and _builder_host | trim | length > 0
+      - image_output_dir is string and image_output_dir | trim | length > 0
+    fail_msg: Supply the assigned builder and image directory before editing the RHEL 8 image.
+  when: os_version is version('9', '<')
 
 - name: Set VM name from inventory hostname
   ansible.builtin.set_fact:
     vm_name: "{{ inventory_hostname }}"
+
+- name: Verify RHEL 8 image before editing
+  ansible.builtin.stat:
+    path: "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+    follow: true
+    get_checksum: false
+  register: _fstab_image
+  failed_when: not (_fstab_image.stat.isreg | default(false))
+  when: os_version is version('9', '<')
+  delegate_to: "{{ _builder_host }}"
 
 - name: Fix RHEL 8 fstab (strip inode64, remove /proc/cmdline mount)
   ansible.builtin.command:
@@ -22,4 +61,4 @@
       's/,inode64//; s/inode64,//; $_ = "" if m{\s/proc/cmdline\s}'
   changed_when: true
   delegate_to: "{{ _builder_host }}"
-  when: os_major | string == "8"
+  when: os_version is version('9', '<')

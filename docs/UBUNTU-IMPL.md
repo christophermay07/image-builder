@@ -90,7 +90,7 @@ sudo reboot                # FIPS requires a reboot to take effect
 This fits the Packer model (the guest can reboot during provisioning), but it introduces a dependency on Ubuntu Pro
 licensing and the `ua` client. The builder's guest instance must be enrolled in Ubuntu Pro before FIPS can be enabled.
 
-**Open question:** Does the client have Ubuntu Pro entitlements? Without them, FIPS support is not available. This is
+**Open question:** Does author have Ubuntu Pro entitlements? Without them, FIPS support is not available. This is
 a fundamentally different licensing model from RHEL, where FIPS is a built-in kernel feature.
 
 ## Cloud Format Conversion
@@ -113,8 +113,8 @@ repositories needs an Ubuntu code path. Roles that are already factored by OS fa
 need a matching `when: os_family == 'debian'` block.
 
 Content sourcing is also different: RHEL content may come from Red Hat CDN, Satellite, or an Artifactory RPM remote.
-Ubuntu content comes from Canonical's archive or an Artifactory Debian remote. The Artifactory repository layout would
-need a Debian/Ubuntu equivalent.
+Ubuntu content comes from Canonical's archive or an Artifactory Debian remote. The Artifactory repository layout
+(R1 in OPEN-REQUIREMENTS.md) would need a Debian/Ubuntu equivalent.
 
 ## Subscription and Entitlement
 

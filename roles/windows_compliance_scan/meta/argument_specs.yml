@@ -1,0 +1,28 @@
+---
+# Defaults remain in defaults/main.yml; this file defines the role input contract.
+argument_specs:
+  main:
+    short_description: Validate inputs for windows_compliance_scan
+    options:
+      ## STIG and compliance
+      powerstig_stig_id:
+        type: str
+        description: Version-specific STIG checklist used by PowerSTIG for compliance scanning.
+        required: true
+      powerstig_version:
+        type: str
+        description: PowerSTIG module version to install for compliance scanning.
+      powerstig_manifest_hash:
+        type: str
+        description: Expected module manifest SHA-256; empty skips verification.
+      nuget_provider_version:
+        type: str
+        description: NuGet package provider version required to install PowerSTIG.
+
+      ## Compliance output
+      compliance_generate_html:
+        type: bool
+        description: Generate an HTML compliance report alongside the structured scan results.
+      compliance_output_dir:
+        type: str
+        description: Directory inside the Windows guest containing compliance scan results.

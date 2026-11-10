@@ -4,39 +4,51 @@
 # Every variable the role consumes is listed here so the role is self-documenting.
 # Sections describe where the authoritative definition lives in this project's inventory.
 
-## Role-specific, all hosts (defined in group_vars/all.yml)
-# ami_import_bucket is environment-specific; lives alongside aws_image_output_bucket in all.yml.
+## Cloud dispatch
+# Based on group membership ("'cloud_aws' in group_names").
+# cloud_target must match that cloud group and is recorded in the common image identity.
+
+## Role-specific, AWS targets (defined in group_vars/cloud_aws.yml)
+# ami_import_bucket is the S3 bucket used for raw disk -> AMI import via vmimport.
+# The existing name is environment configuration, not a bucket created by this role.
 
 ami_import_bucket: "image-pipeline-import"
 
-## Role-only (computed at runtime)
-# Timestamp baked into image metadata. The inline | default() guard in convert_aws.yml makes this safe to omit.
-
-build_timestamp: "{{ ansible_date_time.iso8601 }}"
-
 ## Cross-role, all hosts (defined in group_vars/all.yml)
-# Shared paths and cloud targets used by multiple build and export roles.
+# Shared paths, cloud targets, and AMI tags used by multiple build and export roles.
 
 builder_work_dir: /var/lib/image-builder
 image_output_dir: "{{ builder_work_dir }}/output"
 
-# Cloud targets for image conversion. Only AWS is active; uncomment others when those pipelines are ready.
-cloud_targets:
-  - aws
+## AWS settings (defined in group_vars/cloud_aws.yml)
+aws_region: us-east-1
 
-## AWS credentials (build function)
-# This role performs build-phase AWS operations (S3 upload, AMI import). Uses the build-scoped credential
-# variables from group_vars/all.yml. To split from other functions, override the aws_build_* vars.
+## AWS credentials (build function, defined in group_vars/cloud_aws.yml)
+# Optional explicit overrides: empty values are omitted, leaving authentication to the executing process.
+# Authentication is still required; session tokens are needed only for credentials that use them.
+# These AWS operations execute on the assigned builder, not in the outer job runner.
+# Build-phase AWS credentials from cloud_aws.yml (for S3 upload, AMI import).
+# To split from distribute/cleanup credentials, override the aws_build_* vars.
 aws_build_access_key_id: ""
 aws_build_secret_access_key: ""
 aws_build_session_token: ""
 
-## REQUIRED FROM INVENTORY OR UPSTREAM FACTS (no sensible default)
-# These *must* be provided by the inventory (or set by earlier roles).
-# The role fails with an UndefinedError if they are missing.
+## REQUIRED FROM INVENTORY (no sensible default)
+# These *must* be provided by the inventory.
+# Inputs marked required in meta/argument_specs.yml are checked at role entry.
+# Unresolved references in templated inputs can also cause validation to fail.
 #
-# profile           - per-profile, cross-role          (profile_*.yml)         e.g. "base"
-# os_version        - per-version, cross-role          (rhel_*_*.yml)          e.g. "9.4"
-# os_family         - per-OS-family, cross-role        (rhel*_targets.yml)     e.g. "rhel9"
-# aws_region        - per-environment, cross-role      (all.yml)               e.g. "us-east-1"
-# _builder_host     - set by rhel_image_build; delegate_to target
+# cloud_target    - per-cloud, cross-role        (cloud_*.yml)          e.g., "aws"
+# profile         - per-profile, cross-role      (profile_*.yml)        e.g., "base"
+# os_version      - per-version, cross-role      (rhel_*_*.yml)         e.g., "9.4"
+# os_family       - per-OS-family, cross-role    (rhel_targets.yml)     e.g., "rhel"
+# ami_base_tags   - cross-role, all hosts (all.yml); e.g., {build_pipeline: image-builder}
+# build_timestamp - cross-role, all hosts (all.yml); shared timestamp used by ami_base_tags
+
+## Upstream facts (set by earlier plays or roles)
+# Registered or set_fact variables from earlier stages.
+#
+# _builder_host - builder hostname (set_fact from build role)
+# image_build_id             - unique current attempt from build_rhel.yml (required for registration)
+# prepared_qcow2_sha256 - checksum from image_prepare (required for registration)
+# cloud_image_result        - output: provider, image_id, location, build_id, and qcow2_sha256

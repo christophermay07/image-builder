@@ -1,0 +1,22 @@
+---
+# Kubernetes Node: container host image for managed Kubernetes clusters.
+# Inherits common config from group_vars/all_profiles/, adds k8s-node-specific extras.
+# See all_profiles/README.md for composition rules and YAML syntax notes.
+#
+# TODO: populate with actual Kubernetes node requirements
+profile: k8s-node
+
+# Linux profile settings (Ubuntu only for this profile).
+_profile_specific_linux_packages: []
+#   - containerd
+#   - kubelet
+#   - socat
+#   - conntrack
+_profile_specific_linux_enabled_services: []
+#   - containerd
+#   - kubelet
+_profile_specific_linux_post_tasks: []
+
+# Filesystem layout overrides (merged on top of _base_filesystem_layout via combine()).
+_profile_specific_filesystem_layout: {}
+#   "/var/lib/containerd": "50 GiB"

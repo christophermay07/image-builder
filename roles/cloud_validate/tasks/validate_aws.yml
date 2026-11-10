@@ -1,0 +1,5 @@
+---
+# The AWS implementation owns EC2 networking, temporary key pairs, AMI tags, and guest cleanup.
+- name: Boot and test the imported AMI
+  ansible.builtin.include_role:
+    name: rhel_ami_validate

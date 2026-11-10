@@ -1,0 +1,21 @@
+---
+# One identity per attempt, independent of OS, method, or source artifact format.
+- name: Initialize image build attempt
+  ansible.builtin.set_fact:
+    build_timestamp: "{{ build_timestamp }}"
+    image_build_id: "{{ lookup('password', '/dev/null', length=32, chars=['ascii_lowercase', 'digits']) }}"
+    cloud_image_result: {}
+    image_validation_result: {}
+    published_image: {}
+    artifactory_upload_artifacts: []
+    artifactory_upload_result: {}
+    release_bundle_name: ""
+    release_bundle_version: ""
+    _build_failed: false
+
+# AAP merges converging branches by top-level key. A unique key per target avoids cross-job mapping collisions.
+- name: Clear inherited publication artifact for this target
+  ansible.builtin.set_stats:
+    data: "{{ {'image_publication_' ~ (inventory_hostname | hash('sha256')): {}} }}"
+    aggregate: false
+    per_host: false

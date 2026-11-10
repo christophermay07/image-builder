@@ -1,0 +1,42 @@
+---
+# RHEL hardening validation: offline FIPS verification + compliance scan.
+#
+# Image Builder applies FIPS and STIG during the compose. This role validates the result by mounting the built qcow2 and
+# running oscap offline; no need to boot the image.
+
+# _builder_host is inherited from rhel_image_build (set once per phantom host via round-robin; see that role).
+
+- name: Validate offline scan prerequisites
+  ansible.builtin.assert:
+    that:
+      - _builder_host is string and _builder_host | trim | length > 0
+      - stig_profile is string and stig_profile | trim | length > 0
+      - stig_datastream is string and stig_datastream | trim | length > 0
+      - stig_content_dir is string and stig_content_dir | trim | length > 0
+      - image_mount_point is string and image_mount_point | trim | length > 0
+      - image_output_dir is string and image_output_dir | trim | length > 0
+      - report_output_dir is string and report_output_dir | trim | length > 0
+    fail_msg: Supply the assigned builder, STIG content selection, image directory, mount point, and report directory.
+
+- name: Set VM name from inventory hostname
+  ansible.builtin.set_fact:
+    vm_name: "{{ inventory_hostname }}"
+
+- name: Set image path
+  ansible.builtin.set_fact:
+    image_path: "{{ image_output_dir }}/{{ vm_name }}.qcow2"
+
+- name: Verify qcow2 exists
+  ansible.builtin.stat:
+    path: "{{ image_path }}"
+    follow: true
+    get_checksum: false
+  register: qcow2_stat
+  failed_when: not (qcow2_stat.stat.isreg | default(false))
+  delegate_to: "{{ _builder_host }}"
+
+- name: Verify FIPS configuration (offline)
+  ansible.builtin.include_tasks: verify_fips_offline.yml
+
+- name: Run offline compliance scan
+  ansible.builtin.include_tasks: scan_offline.yml

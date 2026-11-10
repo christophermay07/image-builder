@@ -1,0 +1,10 @@
+---
+# Public role input contract; defaults remain in defaults/main.yml.
+argument_specs:
+  main:
+    short_description: Initialize image build state
+    options:
+      build_timestamp:
+        type: str
+        description: Frozen timestamp of this attempt.
+        required: true
